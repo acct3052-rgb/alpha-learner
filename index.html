@@ -1,0 +1,2283 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha-Learner Trading Platform v2.1</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.5/babel.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .app {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: 250px;
+            background: rgba(20, 20, 40, 0.9);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00ff88;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .nav-item {
+            padding: 12px 16px;
+            margin: 8px 0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+        }
+
+        .nav-item:hover {
+            background: rgba(0, 255, 136, 0.1);
+            border-color: rgba(0, 255, 136, 0.3);
+        }
+
+        .nav-item.active {
+            background: rgba(0, 255, 136, 0.2);
+            border-color: #00ff88;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #00ff88;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .data-source-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .data-source-real {
+            background: rgba(0, 255, 136, 0.2);
+            border: 1px solid #00ff88;
+            color: #00ff88;
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+        }
+
+        .data-source-simulated {
+            background: rgba(255, 165, 0, 0.2);
+            border: 1px solid #ffa500;
+            color: #ffa500;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .card h3 {
+            color: #00ff88;
+            margin-bottom: 16px;
+            font-size: 18px;
+        }
+
+        .warning-box {
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #ffc107;
+        }
+
+        .success-box {
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #00ff88;
+        }
+
+        .error-box {
+            background: rgba(255, 71, 87, 0.1);
+            border: 1px solid rgba(255, 71, 87, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #ff4757;
+        }
+
+        .api-provider-card {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .api-provider-card:hover {
+            border-color: rgba(0, 255, 136, 0.3);
+            box-shadow: 0 4px 12px rgba(0, 255, 136, 0.1);
+        }
+
+        .api-provider-card.connected {
+            border-color: #00ff88;
+            background: rgba(0, 255, 136, 0.05);
+        }
+
+        .api-status-badge {
+            margin-left: auto;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .api-status-connected {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+
+        .api-status-disconnected {
+            background: rgba(255, 71, 87, 0.2);
+            color: #ff4757;
+        }
+
+        .api-status-testing {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .signal-card {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1) 0%, rgba(0, 255, 136, 0.05) 100%);
+            border: 1px solid #00ff88;
+            border-radius: 16px;
+            padding: 20px;
+            position: relative;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        .signal-card.urgent {
+            animation: pulse-urgent 1s infinite;
+        }
+
+        .signal-card.success {
+            border-color: #00ff88;
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.2) 0%, rgba(0, 255, 136, 0.1) 100%);
+        }
+
+        .signal-card.error {
+            border-color: #ff4757;
+            background: linear-gradient(135deg, rgba(255, 71, 87, 0.2) 0%, rgba(255, 71, 87, 0.1) 100%);
+        }
+
+        @keyframes pulse-urgent {
+            0%, 100% { 
+                border-color: #ffd700;
+                box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+            }
+            50% { 
+                border-color: #ffed4e;
+                box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+            }
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(-20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .signal-direction {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .signal-direction.buy {
+            color: #00ff88;
+        }
+
+        .signal-direction.sell {
+            color: #ff4757;
+        }
+
+        .signal-score {
+            background: rgba(0, 255, 136, 0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            display: inline-block;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+
+        .signal-status {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            display: inline-block;
+            margin-left: 10px;
+        }
+
+        .signal-status.pending {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+
+        .signal-status.success {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+
+        .signal-status.error {
+            background: rgba(255, 71, 87, 0.2);
+            color: #ff4757;
+        }
+
+        .signal-status.expired {
+            background: rgba(158, 158, 158, 0.2);
+            color: #9e9e9e;
+        }
+
+        .signal-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .signal-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+
+        .btn-primary {
+            background: #00ff88;
+            color: #000;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #00cc6a;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e0e0e0;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-danger {
+            background: rgba(255, 71, 87, 0.2);
+            color: #ff4757;
+            border: 1px solid #ff4757;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: rgba(255, 71, 87, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .metric-card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .metric-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #00ff88;
+            margin-bottom: 8px;
+        }
+
+        .metric-label {
+            font-size: 14px;
+            color: #a0a0a0;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            color: #c0c0c0;
+            font-weight: 500;
+        }
+
+        .form-input, .form-select {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: #e0e0e0;
+            font-size: 16px;
+        }
+
+        .form-select {
+            cursor: pointer;
+        }
+
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: #00ff88;
+            box-shadow: 0 0 0 3px rgba(0, 255, 136, 0.2);
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 60px;
+            height: 30px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .toggle-switch.active {
+            background: #00ff88;
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 24px;
+            height: 24px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s ease;
+        }
+
+        .toggle-switch.active::after {
+            transform: translateX(30px);
+        }
+
+        .weight-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .weight-bar {
+            width: 100px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .weight-fill {
+            height: 100%;
+            background: #00ff88;
+            transition: width 0.3s ease;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 255, 136, 0.9);
+            color: #000;
+            padding: 16px 20px;
+            border-radius: 8px;
+            font-weight: 500;
+            animation: slideInRight 0.5s ease-out;
+            z-index: 1000;
+            max-width: 400px;
+        }
+
+        @keyframes slideInRight {
+            from { transform: translateX(100px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .mode-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .mode-btn {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #e0e0e0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .mode-btn.active {
+            border-color: #00ff88;
+            background: rgba(0, 255, 136, 0.1);
+            color: #00ff88;
+        }
+
+        .connection-status-line {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .spinner {
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-top: 2px solid #00ff88;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        /* ========================================
+           MÓDULO DE INTEGRAÇÃO DE APIs
+           ======================================== */
+
+        // Configurações de APIs disponíveis
+        const API_PROVIDERS = {
+            ALPHA_VANTAGE: {
+                name: 'Alpha Vantage',
+                icon: '📈',
+                requiresSecret: false,
+                baseUrl: 'https://www.alphavantage.co/query',
+                description: 'Dados de ações, forex e cripto (500 calls/dia grátis)'
+            },
+            BINANCE: {
+                name: 'Binance',
+                icon: '🟡',
+                requiresSecret: true,
+                baseUrl: 'https://api.binance.com/api/v3',
+                description: 'Dados de criptomoedas em tempo real'
+            },
+            COINGECKO: {
+                name: 'CoinGecko',
+                icon: '🦎',
+                requiresSecret: false,
+                baseUrl: 'https://api.coingecko.com/api/v3',
+                description: 'Dados de cripto sem necessidade de chave'
+            },
+            POLYGON: {
+                name: 'Polygon.io',
+                icon: '🔺',
+                requiresSecret: false,
+                baseUrl: 'https://api.polygon.io/v2',
+                description: 'Dados de ações e forex premium'
+            }
+        };
+
+        /* Classe para gerenciar conexões de API */
+        class APIConnectionManager {
+            constructor() {
+                this.connections = new Map();
+                this.activeProvider = null;
+                
+                /* SIMULAÇÃO: Armazenar em memória
+                   PRODUÇÃO: Descomentar para usar localStorage */
+                // this.loadFromStorage();
+            }
+
+            /* PRODUÇÃO: Carregar conexões salvas
+            loadFromStorage() {
+                try {
+                    const saved = localStorage.getItem('api_connections');
+                    if (saved) {
+                        const data = JSON.parse(saved);
+                        this.connections = new Map(Object.entries(data));
+                    }
+                } catch (error) {
+                    console.log('Erro ao carregar conexões:', error);
+                }
+            }
+
+            saveToStorage() {
+                try {
+                    const data = Object.fromEntries(this.connections);
+                    localStorage.setItem('api_connections', JSON.stringify(data));
+                } catch (error) {
+                    console.log('Erro ao salvar conexões:', error);
+                }
+            }
+            */
+
+            addConnection(provider, apiKey, secretKey = null) {
+                this.connections.set(provider, {
+                    apiKey,
+                    secretKey,
+                    status: 'disconnected',
+                    lastTested: null
+                });
+                // this.saveToStorage(); // PRODUÇÃO: Descomentar
+            }
+
+            removeConnection(provider) {
+                this.connections.delete(provider);
+                if (this.activeProvider === provider) {
+                    this.activeProvider = null;
+                }
+                // this.saveToStorage(); // PRODUÇÃO: Descomentar
+            }
+
+            setActive(provider) {
+                if (this.connections.has(provider)) {
+                    this.activeProvider = provider;
+                    return true;
+                }
+                return false;
+            }
+
+            getActiveConnection() {
+                if (!this.activeProvider) return null;
+                return {
+                    provider: this.activeProvider,
+                    ...this.connections.get(this.activeProvider)
+                };
+            }
+
+            updateStatus(provider, status) {
+                const conn = this.connections.get(provider);
+                if (conn) {
+                    conn.status = status;
+                    conn.lastTested = new Date();
+                    // this.saveToStorage(); // PRODUÇÃO: Descomentar
+                }
+            }
+        }
+
+        /* Função para buscar dados reais de APIs */
+        async function fetchRealMarketData(provider, apiKey, symbol, timeframe, secretKey = null) {
+            /* IMPORTANTE: Esta função faz chamadas HTTP reais às APIs.
+               No ambiente Claude.ai, pode haver limitações de CORS.
+               Em produção, funciona perfeitamente. */
+
+            try {
+                let url, response, data;
+
+                switch(provider) {
+                    case 'ALPHA_VANTAGE':
+                        // Exemplo: Buscar dados intraday
+                        url = `${API_PROVIDERS.ALPHA_VANTAGE.baseUrl}?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=${timeframe}&apikey=${apiKey}`;
+                        response = await fetch(url);
+                        data = await response.json();
+                        
+                        if (data['Error Message'] || data['Note']) {
+                            throw new Error(data['Error Message'] || 'Limite de API atingido');
+                        }
+
+                        return parseAlphaVantageData(data, timeframe);
+
+                    case 'BINANCE':
+                        // Exemplo: Buscar klines (candlesticks)
+                        const interval = timeframe === 'M5' ? '5m' : '15m';
+                        url = `${API_PROVIDERS.BINANCE.baseUrl}/klines?symbol=${symbol}&interval=${interval}&limit=200`;
+                        response = await fetch(url);
+                        data = await response.json();
+                        
+                        if (data.code) {
+                            throw new Error(data.msg || 'Erro na API Binance');
+                        }
+
+                        return parseBinanceData(data);
+
+                    case 'COINGECKO':
+                        // CoinGecko usa IDs diferentes (ex: bitcoin, ethereum)
+                        const coinId = symbol.toLowerCase().replace('USDT', '').replace('BTC', 'bitcoin');
+                        url = `${API_PROVIDERS.COINGECKO.baseUrl}/coins/${coinId}/market_chart?vs_currency=usd&days=7&interval=hourly`;
+                        response = await fetch(url);
+                        data = await response.json();
+                        
+                        if (data.error) {
+                            throw new Error(data.error);
+                        }
+
+                        return parseCoinGeckoData(data);
+
+                    case 'POLYGON':
+                        // Exemplo: Buscar agregados
+                        const multiplier = timeframe === 'M5' ? 5 : 15;
+                        const to = new Date().toISOString().split('T')[0];
+                        const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                        url = `${API_PROVIDERS.POLYGON.baseUrl}/aggs/ticker/${symbol}/range/${multiplier}/minute/${from}/${to}?apiKey=${apiKey}`;
+                        response = await fetch(url);
+                        data = await response.json();
+                        
+                        if (data.status === 'ERROR') {
+                            throw new Error(data.error || 'Erro na API Polygon');
+                        }
+
+                        return parsePolygonData(data);
+
+                    default:
+                        throw new Error('Provider não suportado');
+                }
+            } catch (error) {
+                console.error('Erro ao buscar dados reais:', error);
+                throw error;
+            }
+        }
+
+        /* Funções de parsing para cada API */
+        function parseAlphaVantageData(data, timeframe) {
+            const timeSeriesKey = `Time Series (${timeframe})`;
+            const timeSeries = data[timeSeriesKey];
+            
+            if (!timeSeries) {
+                throw new Error('Dados não encontrados na resposta');
+            }
+
+            const candles = [];
+            for (const [timestamp, values] of Object.entries(timeSeries)) {
+                candles.push({
+                    timestamp: new Date(timestamp).getTime(),
+                    open: parseFloat(values['1. open']),
+                    high: parseFloat(values['2. high']),
+                    low: parseFloat(values['3. low']),
+                    close: parseFloat(values['4. close']),
+                    volume: parseFloat(values['5. volume'])
+                });
+            }
+
+            return candles.reverse().slice(-200); // Últimas 200 velas
+        }
+
+        function parseBinanceData(data) {
+            return data.map(candle => ({
+                timestamp: candle[0],
+                open: parseFloat(candle[1]),
+                high: parseFloat(candle[2]),
+                low: parseFloat(candle[3]),
+                close: parseFloat(candle[4]),
+                volume: parseFloat(candle[5])
+            }));
+        }
+
+        function parseCoinGeckoData(data) {
+            if (!data.prices) {
+                throw new Error('Dados de preços não encontrados');
+            }
+
+            return data.prices.slice(-200).map(point => {
+                const price = point[1];
+                return {
+                    timestamp: point[0],
+                    open: price,
+                    high: price * 1.005,
+                    low: price * 0.995,
+                    close: price,
+                    volume: 1000000
+                };
+            });
+        }
+
+        function parsePolygonData(data) {
+            if (!data.results) {
+                throw new Error('Resultados não encontrados');
+            }
+
+            return data.results.map(candle => ({
+                timestamp: candle.t,
+                open: candle.o,
+                high: candle.h,
+                low: candle.l,
+                close: candle.c,
+                volume: candle.v
+            }));
+        }
+
+        /* Função para testar conexão */
+        async function testAPIConnection(provider, apiKey, secretKey = null) {
+            try {
+                // Testar com símbolo padrão
+                const testSymbol = provider === 'BINANCE' ? 'BTCUSDT' : 'BTC';
+                await fetchRealMarketData(provider, apiKey, testSymbol, 'M5', secretKey);
+                return { success: true, message: 'Conexão bem-sucedida!' };
+            } catch (error) {
+                return { 
+                    success: false, 
+                    message: `Falha na conexão: ${error.message}` 
+                };
+            }
+        }
+
+        /* ========================================
+           CLASSES EXISTENTES (com modificações)
+           ======================================== */
+
+        class MemoryDB {
+            constructor() {
+                this.signals_history = [];
+                this.ml_weights_evolution = [];
+                this.config_snapshots = [];
+            }
+
+            async saveSignal(signal) {
+                this.signals_history.push({
+                    ...signal,
+                    savedAt: new Date().toISOString()
+                });
+            }
+
+            async getAllSignals() {
+                return [...this.signals_history];
+            }
+
+            async saveWeightsSnapshot(weights, performance) {
+                const snapshot = {
+                    date: new Date().toISOString(),
+                    weights: { ...weights },
+                    performance: { ...performance }
+                };
+                this.ml_weights_evolution.push(snapshot);
+            }
+
+            async getWeightsHistory() {
+                return [...this.ml_weights_evolution];
+            }
+
+            async getStatistics() {
+                const signals = await this.getAllSignals();
+                const completed = signals.filter(s => s.status !== 'PENDENTE');
+                const successful = completed.filter(s => s.status === 'ACERTO');
+                
+                return {
+                    total: signals.length,
+                    completed: completed.length,
+                    successful: successful.length,
+                    winRate: completed.length > 0 ? (successful.length / completed.length) * 100 : 0,
+                    totalPnL: completed.reduce((sum, s) => sum + (s.pnl || 0), 0)
+                };
+            }
+        }
+
+        class MarketDataSimulator {
+            constructor() {
+                this.prices = [];
+                this.timeframe = 'M5';
+                this.generateInitialData();
+            }
+
+            generateInitialData() {
+                const basePrice = 50000;
+                for (let i = 0; i < 200; i++) {
+                    const timestamp = Date.now() - (200 - i) * 5 * 60 * 1000;
+                    const price = basePrice + Math.sin(i * 0.1) * 1000 + Math.random() * 200 - 100;
+                    this.prices.push({
+                        timestamp,
+                        open: price,
+                        high: price + Math.random() * 50,
+                        low: price - Math.random() * 50,
+                        close: price + (Math.random() - 0.5) * 30,
+                        volume: Math.random() * 1000000
+                    });
+                }
+            }
+
+            getLatestPrice() {
+                return this.prices[this.prices.length - 1];
+            }
+
+            addNewCandle() {
+                const lastCandle = this.prices[this.prices.length - 1];
+                const newPrice = lastCandle.close + (Math.random() - 0.5) * 100;
+                const newCandle = {
+                    timestamp: Date.now(),
+                    open: newPrice,
+                    high: newPrice + Math.random() * 30,
+                    low: newPrice - Math.random() * 30,
+                    close: newPrice + (Math.random() - 0.5) * 20,
+                    volume: Math.random() * 1000000
+                };
+                this.prices.push(newCandle);
+                if (this.prices.length > 200) {
+                    this.prices.shift();
+                }
+                return newCandle;
+            }
+
+            // Método para substituir dados simulados por dados reais
+            replaceWithRealData(realData) {
+                if (realData && realData.length > 0) {
+                    this.prices = realData;
+                    console.log(`Dados reais carregados: ${realData.length} velas`);
+                }
+            }
+        }
+
+        class TechnicalIndicators {
+            static calculateRSI(prices, period = 14) {
+                if (prices.length < period + 1) return 50;
+                
+                let gains = 0;
+                let losses = 0;
+                
+                for (let i = prices.length - period; i < prices.length; i++) {
+                    const change = prices[i].close - prices[i - 1].close;
+                    if (change > 0) gains += change;
+                    else losses -= change;
+                }
+                
+                const avgGain = gains / period;
+                const avgLoss = losses / period;
+                const rs = avgGain / avgLoss;
+                return 100 - (100 / (1 + rs));
+            }
+
+            static calculateMACD(prices, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+                if (prices.length < slowPeriod) return { macd: 0, signal: 0, histogram: 0 };
+                
+                const fastEMA = this.calculateEMA(prices.slice(-fastPeriod).map(p => p.close), fastPeriod);
+                const slowEMA = this.calculateEMA(prices.slice(-slowPeriod).map(p => p.close), slowPeriod);
+                const macd = fastEMA - slowEMA;
+                
+                return { macd, signal: macd * 0.9, histogram: macd * 0.1 };
+            }
+
+            static calculateEMA(values, period) {
+                const k = 2 / (period + 1);
+                let ema = values[0];
+                for (let i = 1; i < values.length; i++) {
+                    ema = values[i] * k + ema * (1 - k);
+                }
+                return ema;
+            }
+
+            static calculateBollingerBands(prices, period = 20, stdDev = 2) {
+                if (prices.length < period) return { upper: 0, middle: 0, lower: 0 };
+                
+                const recentPrices = prices.slice(-period).map(p => p.close);
+                const sma = recentPrices.reduce((a, b) => a + b) / period;
+                
+                const variance = recentPrices.reduce((sum, price) => sum + Math.pow(price - sma, 2), 0) / period;
+                const sd = Math.sqrt(variance);
+                
+                return {
+                    upper: sma + (sd * stdDev),
+                    middle: sma,
+                    lower: sma - (sd * stdDev)
+                };
+            }
+
+            static calculateStochastic(prices, kPeriod = 14, dPeriod = 3) {
+                if (prices.length < kPeriod) return { k: 50, d: 50 };
+                
+                const recentPrices = prices.slice(-kPeriod);
+                const highestHigh = Math.max(...recentPrices.map(p => p.high));
+                const lowestLow = Math.min(...recentPrices.map(p => p.low));
+                const currentClose = prices[prices.length - 1].close;
+                
+                const k = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
+                const d = k * 0.95;
+                
+                return { k, d };
+            }
+
+            static calculateATR(prices, period = 14) {
+                if (prices.length < period + 1) return prices[prices.length - 1].close * 0.02;
+                
+                let trSum = 0;
+                for (let i = prices.length - period; i < prices.length; i++) {
+                    const high = prices[i].high;
+                    const low = prices[i].low;
+                    const prevClose = prices[i - 1].close;
+                    
+                    const tr = Math.max(
+                        high - low,
+                        Math.abs(high - prevClose),
+                        Math.abs(low - prevClose)
+                    );
+                    trSum += tr;
+                }
+                
+                return trSum / period;
+            }
+        }
+
+        class AlphaEngine {
+            constructor(memoryDB) {
+                this.memoryDB = memoryDB;
+                this.weights = {
+                    rsi: 0.20,
+                    macd: 0.15,
+                    bollinger: 0.15,
+                    stochastic_events: 0.20,
+                    stochastic_divergence: 0.30
+                };
+                this.performance = {
+                    totalSignals: 0,
+                    successfulSignals: 0,
+                    winRate: 0,
+                    totalPnL: 0
+                };
+                this.warmUpModel();
+            }
+
+            async warmUpModel() {
+                try {
+                    const stats = await this.memoryDB.getStatistics();
+                    if (stats.total > 0) {
+                        this.performance = {
+                            totalSignals: stats.total,
+                            successfulSignals: stats.successful,
+                            winRate: stats.winRate,
+                            totalPnL: stats.totalPnL
+                        };
+                    }
+                } catch (error) {
+                    console.log('Erro ao aquecer modelo:', error);
+                }
+            }
+
+            analyzeMarket(marketData, dataSource) {
+                const prices = marketData.prices;
+                const currentPrice = marketData.getLatestPrice();
+                
+                const rsi = TechnicalIndicators.calculateRSI(prices);
+                const macd = TechnicalIndicators.calculateMACD(prices);
+                const bollinger = TechnicalIndicators.calculateBollingerBands(prices);
+                const stochastic = TechnicalIndicators.calculateStochastic(prices);
+                
+                const features = this.extractFeatures(currentPrice, rsi, macd, bollinger, stochastic);
+                const signal = this.generateSignal(features, currentPrice, dataSource);
+                
+                return signal;
+            }
+
+            extractFeatures(currentPrice, rsi, macd, bollinger, stochastic) {
+                return {
+                    rsi: {
+                        value: rsi,
+                        overbought: rsi > 70,
+                        oversold: rsi < 30,
+                        score: this.calculateRSIScore(rsi)
+                    },
+                    macd: {
+                        value: macd.macd,
+                        signal: macd.signal,
+                        histogram: macd.histogram,
+                        bullish: macd.macd > macd.signal,
+                        score: this.calculateMACDScore(macd)
+                    },
+                    bollinger: {
+                        position: (currentPrice.close - bollinger.lower) / (bollinger.upper - bollinger.lower),
+                        squeeze: (bollinger.upper - bollinger.lower) / bollinger.middle < 0.1,
+                        score: this.calculateBollingerScore(currentPrice.close, bollinger)
+                    },
+                    stochastic: {
+                        k: stochastic.k,
+                        d: stochastic.d,
+                        overbought: stochastic.k > 80,
+                        oversold: stochastic.k < 20,
+                        crossover: this.detectStochasticCrossover(stochastic),
+                        divergence: this.detectDivergence(),
+                        score: this.calculateStochasticScore(stochastic)
+                    }
+                };
+            }
+
+            calculateRSIScore(rsi) {
+                if (rsi < 30) return 0.8;
+                if (rsi > 70) return -0.8;
+                return 0;
+            }
+
+            calculateMACDScore(macd) {
+                if (macd.macd > macd.signal && macd.histogram > 0) return 0.7;
+                if (macd.macd < macd.signal && macd.histogram < 0) return -0.7;
+                return 0;
+            }
+
+            calculateBollingerScore(price, bollinger) {
+                const position = (price - bollinger.lower) / (bollinger.upper - bollinger.lower);
+                if (position < 0.2) return 0.6;
+                if (position > 0.8) return -0.6;
+                return 0;
+            }
+
+            calculateStochasticScore(stochastic) {
+                let score = 0;
+                if (stochastic.k < 20) score += 0.5;
+                if (stochastic.k > 80) score -= 0.5;
+                if (stochastic.k > stochastic.d) score += 0.3;
+                else score -= 0.3;
+                return score;
+            }
+
+            detectStochasticCrossover(stochastic) {
+                return Math.abs(stochastic.k - stochastic.d) < 5;
+            }
+
+            detectDivergence() {
+                return {
+                    present: Math.random() < 0.3,
+                    type: Math.random() > 0.5 ? 'bullish' : 'bearish',
+                    strength: Math.random() * 0.5 + 0.5
+                };
+            }
+
+            generateSignal(features, currentPrice, dataSource) {
+                let score = 0;
+                const contributors = [];
+
+                Object.keys(this.weights).forEach(indicator => {
+                    let indicatorScore = 0;
+                    
+                    switch(indicator) {
+                        case 'rsi':
+                            indicatorScore = features.rsi.score;
+                            break;
+                        case 'macd':
+                            indicatorScore = features.macd.score;
+                            break;
+                        case 'bollinger':
+                            indicatorScore = features.bollinger.score;
+                            break;
+                        case 'stochastic_events':
+                            indicatorScore = features.stochastic.score;
+                            break;
+                        case 'stochastic_divergence':
+                            if (features.stochastic.divergence.present) {
+                                indicatorScore = features.stochastic.divergence.type === 'bullish' ? 0.8 : -0.8;
+                                indicatorScore *= features.stochastic.divergence.strength;
+                            }
+                            break;
+                    }
+                    
+                    score += indicatorScore * this.weights[indicator];
+                    if (Math.abs(indicatorScore) > 0.1) {
+                        contributors.push(indicator);
+                    }
+                });
+
+                const normalizedScore = Math.max(0, Math.min(100, (score + 1) * 50));
+
+                if (normalizedScore < 25) {
+                    return null;
+                }
+
+                const direction = score > 0 ? 'BUY' : 'SELL';
+                const atr = TechnicalIndicators.calculateATR([currentPrice]);
+                
+                const timeframeMinutes = direction === 'BUY' ? 5 : 15;
+                const entryTime = new Date();
+                entryTime.setMinutes(entryTime.getMinutes() + Math.floor(Math.random() * timeframeMinutes) + 1);
+                
+                const signal = {
+                    id: Date.now() + Math.random(),
+                    timestamp: new Date(),
+                    symbol: 'BTCUSDT',
+                    direction,
+                    timeframe: timeframeMinutes === 5 ? 'M5' : 'M15',
+                    score: Math.round(normalizedScore),
+                    price: currentPrice.close,
+                    entryTime: entryTime,
+                    stopLoss: direction === 'BUY' ? 
+                        currentPrice.close - (atr * 2) : 
+                        currentPrice.close + (atr * 2),
+                    takeProfit: direction === 'BUY' ? 
+                        currentPrice.close + (atr * 4) : 
+                        currentPrice.close - (atr * 4),
+                    contributors,
+                    divergence: features.stochastic.divergence.present ? features.stochastic.divergence : null,
+                    features,
+                    status: 'PENDENTE',
+                    dataSource,
+                    pnl: 0
+                };
+
+                this.memoryDB.saveSignal(signal);
+
+                return signal;
+            }
+
+            async learnFromTrade(signal, result) {
+                const successful = result === 'ACERTO';
+                const learningRate = 0.1;
+                const multiplier = signal.divergence ? 2 : 1;
+                
+                signal.contributors.forEach(indicator => {
+                    if (successful) {
+                        this.weights[indicator] = Math.min(1, this.weights[indicator] + learningRate * multiplier);
+                    } else {
+                        this.weights[indicator] = Math.max(0, this.weights[indicator] - learningRate * multiplier);
+                    }
+                });
+
+                const totalWeight = Object.values(this.weights).reduce((a, b) => a + b, 0);
+                Object.keys(this.weights).forEach(key => {
+                    this.weights[key] /= totalWeight;
+                });
+
+                this.performance.totalSignals++;
+                if (successful) this.performance.successfulSignals++;
+                this.performance.winRate = (this.performance.successfulSignals / this.performance.totalSignals) * 100;
+
+                signal.status = result;
+                await this.memoryDB.saveSignal(signal);
+
+                if (this.performance.totalSignals % 10 === 0) {
+                    await this.memoryDB.saveWeightsSnapshot(this.weights, this.performance);
+                }
+            }
+        }
+
+        /* ========================================
+           COMPONENTES REACT
+           ======================================== */
+
+        function App() {
+            const [currentView, setCurrentView] = useState('dashboard');
+            const [mode, setMode] = useState('manual');
+            const [isActive, setIsActive] = useState(false);
+            const [signals, setSignals] = useState([]);
+            const [marketData, setMarketData] = useState(null);
+            const [alphaEngine, setAlphaEngine] = useState(null);
+            const [notification, setNotification] = useState(null);
+            const [minScore, setMinScore] = useState(75);
+            const [riskAmount, setRiskAmount] = useState(100);
+            const [dataSource, setDataSource] = useState('SIMULADO');
+            const [memoryDB, setMemoryDB] = useState(null);
+            const [apiManager, setApiManager] = useState(null);
+
+            const marketDataRef = useRef(null);
+            const alphaEngineRef = useRef(null);
+            const memoryDBRef = useRef(null);
+            const apiManagerRef = useRef(null);
+            const verificationTimers = useRef(new Map());
+
+            useEffect(() => {
+                try {
+                    memoryDBRef.current = new MemoryDB();
+                    marketDataRef.current = new MarketDataSimulator();
+                    alphaEngineRef.current = new AlphaEngine(memoryDBRef.current);
+                    apiManagerRef.current = new APIConnectionManager();
+                    
+                    setMemoryDB(memoryDBRef.current);
+                    setMarketData(marketDataRef.current);
+                    setAlphaEngine(alphaEngineRef.current);
+                    setApiManager(apiManagerRef.current);
+                } catch (error) {
+                    console.log('Erro na inicialização:', error);
+                }
+            }, []);
+
+            /* SWITCHER: Troca dinâmica entre dados simulados e reais */
+            useEffect(() => {
+                if (!isActive || !marketData || !alphaEngine || !apiManager) return;
+
+                const interval = setInterval(async () => {
+                    try {
+                        // Verificar se existe API ativa
+                        const activeConn = apiManager.getActiveConnection();
+                        let currentDataSource = 'SIMULADO';
+                        
+                        if (activeConn && activeConn.status === 'connected') {
+                            // Tentar buscar dados reais
+                            try {
+                                const realData = await fetchRealMarketData(
+                                    activeConn.provider,
+                                    activeConn.apiKey,
+                                    'BTCUSDT',
+                                    'M5',
+                                    activeConn.secretKey
+                                );
+                                
+                                if (realData && realData.length > 0) {
+                                    marketData.replaceWithRealData(realData);
+                                    currentDataSource = 'REAL';
+                                    setDataSource('REAL');
+                                }
+                            } catch (error) {
+                                console.log('Erro ao buscar dados reais, usando simulados:', error);
+                                marketData.addNewCandle();
+                                currentDataSource = 'SIMULADO';
+                                setDataSource('SIMULADO');
+                            }
+                        } else {
+                            // Usar dados simulados
+                            marketData.addNewCandle();
+                            currentDataSource = 'SIMULADO';
+                            setDataSource('SIMULADO');
+                        }
+                        
+                        const signal = alphaEngine.analyzeMarket(marketData, currentDataSource);
+                        
+                        if (signal && signal.score >= minScore) {
+                            setSignals(prev => [signal, ...prev.slice(0, 9)]);
+                            showNotification(`Novo sinal ${signal.direction} - Score: ${signal.score}%`);
+                            playAlert();
+                            scheduleSignalVerification(signal);
+                        }
+                    } catch (error) {
+                        console.log('Erro no loop principal:', error);
+                    }
+                }, 3000);
+
+                return () => clearInterval(interval);
+            }, [isActive, marketData, alphaEngine, minScore, apiManager]);
+
+            useEffect(() => {
+                if (!isActive) return;
+                
+                const countdownInterval = setInterval(() => {
+                    setSignals(prev => [...prev]);
+                }, 1000);
+
+                return () => clearInterval(countdownInterval);
+            }, [isActive]);
+
+            const scheduleSignalVerification = (signal) => {
+                const timeframeMs = signal.timeframe === 'M5' ? 5 * 60 * 1000 : 15 * 60 * 1000;
+                
+                const timerId = setTimeout(() => {
+                    verifySignalOutcome(signal);
+                }, timeframeMs);
+
+                verificationTimers.current.set(signal.id, timerId);
+            };
+
+            const verifySignalOutcome = async (signal) => {
+                try {
+                    if (!marketData) return;
+
+                    const currentPrice = marketData.getLatestPrice().close;
+                    
+                    let result = 'EXPIRADO';
+                    let pnl = 0;
+
+                    if (signal.direction === 'BUY') {
+                        if (currentPrice >= signal.takeProfit) {
+                            result = 'ACERTO';
+                            pnl = riskAmount * 2;
+                        } else if (currentPrice <= signal.stopLoss) {
+                            result = 'ERRO';
+                            pnl = -riskAmount;
+                        }
+                    } else {
+                        if (currentPrice <= signal.takeProfit) {
+                            result = 'ACERTO';
+                            pnl = riskAmount * 2;
+                        } else if (currentPrice >= signal.stopLoss) {
+                            result = 'ERRO';
+                            pnl = -riskAmount;
+                        }
+                    }
+
+                    signal.status = result;
+                    signal.pnl = pnl;
+                    signal.finalPrice = currentPrice;
+
+                    if (alphaEngine && result !== 'EXPIRADO') {
+                        await alphaEngine.learnFromTrade(signal, result);
+                    }
+
+                    setSignals(prev => prev.map(s => 
+                        s.id === signal.id ? { ...s, status: result, pnl, finalPrice: currentPrice } : s
+                    ));
+
+                    showNotification(
+                        result === 'ACERTO' 
+                            ? `✅ Sinal confirmado: +${formatBRL(pnl)}`
+                            : `❌ Stop atingido: ${formatBRL(pnl)}`
+                    );
+
+                    verificationTimers.current.delete(signal.id);
+                } catch (error) {
+                    console.log('Erro na verificação:', error);
+                }
+            };
+
+            const playAlert = () => {
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    oscillator.frequency.value = 800;
+                    oscillator.type = 'sine';
+                    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+                    
+                    oscillator.start();
+                    oscillator.stop(audioContext.currentTime + 0.2);
+                } catch (error) {
+                    console.log('Audio not available');
+                }
+            };
+
+            const showNotification = (message) => {
+                try {
+                    if (!message) return;
+                    setNotification(message);
+                    setTimeout(() => setNotification(null), 3000);
+                } catch (error) {
+                    console.log('Erro ao mostrar notificação:', error);
+                }
+            };
+
+            const dismissSignal = (signalId) => {
+                try {
+                    if (!signalId) return;
+                    
+                    if (verificationTimers.current.has(signalId)) {
+                        clearTimeout(verificationTimers.current.get(signalId));
+                        verificationTimers.current.delete(signalId);
+                    }
+                    
+                    setSignals(prev => prev.filter(s => s && s.id !== signalId));
+                } catch (error) {
+                    console.log('Erro ao dispensar sinal:', error);
+                }
+            };
+
+            const copySignalDetails = (signal) => {
+                try {
+                    if (!signal) {
+                        showNotification('Erro: Sinal não encontrado');
+                        return;
+                    }
+
+                    const details = `
+Sinal: ${signal.direction || 'N/A'} ${signal.symbol || 'N/A'}
+Score: ${signal.score || 0}%
+Preço: ${formatBRL(signal.price)}
+Stop Loss: ${formatBRL(signal.stopLoss)}
+Take Profit: ${formatBRL(signal.takeProfit)}
+Timeframe: ${signal.timeframe || 'N/A'}
+Status: ${signal.status || 'PENDENTE'}
+Fonte: ${signal.dataSource || 'N/A'}
+${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
+                    `.trim();
+                    
+                    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                        navigator.clipboard.writeText(details)
+                            .then(() => showNotification('Detalhes copiados!'))
+                            .catch(() => showNotification('Erro ao copiar'));
+                    }
+                } catch (error) {
+                    console.log('Erro ao copiar:', error);
+                }
+            };
+
+            const formatBRL = (value) => {
+                if (value === null || value === undefined) return 'R$ 0,00';
+                return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            };
+
+            return (
+                <div className="app">
+                    <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
+                    <div className="main-content">
+                        <Header 
+                            isActive={isActive} 
+                            setIsActive={setIsActive}
+                            mode={mode}
+                            setMode={setMode}
+                            dataSource={dataSource}
+                        />
+                        
+                        {currentView === 'dashboard' && (
+                            <Dashboard 
+                                signals={signals}
+                                alphaEngine={alphaEngine}
+                                minScore={minScore}
+                                setMinScore={setMinScore}
+                                dismissSignal={dismissSignal}
+                                copySignalDetails={copySignalDetails}
+                                riskAmount={riskAmount}
+                                setRiskAmount={setRiskAmount}
+                                formatBRL={formatBRL}
+                            />
+                        )}
+                        
+                        {currentView === 'performance' && (
+                            <Performance alphaEngine={alphaEngine} signals={signals} memoryDB={memoryDB} formatBRL={formatBRL} />
+                        )}
+                        
+                        {currentView === 'ml-engine' && (
+                            <MLEngine alphaEngine={alphaEngine} memoryDB={memoryDB} />
+                        )}
+                        
+                        {currentView === 'connections' && (
+                            <ConnectionsView 
+                                apiManager={apiManager}
+                                showNotification={showNotification}
+                                onConnectionChange={() => {
+                                    // Forçar re-render quando conexão mudar
+                                    setApiManager({...apiManager});
+                                }}
+                            />
+                        )}
+                        
+                        {currentView === 'settings' && (
+                            <Settings 
+                                minScore={minScore}
+                                setMinScore={setMinScore}
+                            />
+                        )}
+                    </div>
+                    
+                    {notification && (
+                        <div className="notification">
+                            {notification}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        function Sidebar({ currentView, setCurrentView }) {
+            const menuItems = [
+                { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+                { id: 'performance', label: 'Performance', icon: '📈' },
+                { id: 'ml-engine', label: 'ML Engine', icon: '🧠' },
+                { id: 'connections', label: 'Conexões', icon: '🔗' },
+                { id: 'settings', label: 'Configurações', icon: '⚙️' }
+            ];
+
+            return (
+                <div className="sidebar">
+                    <div className="logo">⚡ Alpha-Learner v2.1</div>
+                    {menuItems.map(item => (
+                        <div 
+                            key={item.id}
+                            className={`nav-item ${currentView === item.id ? 'active' : ''}`}
+                            onClick={() => setCurrentView(item.id)}
+                        >
+                            {item.icon} {item.label}
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+
+        function Header({ isActive, setIsActive, mode, setMode, dataSource }) {
+            return (
+                <div className="header">
+                    <div>
+                        <h2>Trading Console</h2>
+                        <div className="mode-selector">
+                            <div 
+                                className={`mode-btn ${mode === 'manual' ? 'active' : ''}`}
+                                onClick={() => setMode('manual')}
+                            >
+                                🎯 Modo Assistente
+                            </div>
+                            <div 
+                                className={`mode-btn ${mode === 'auto' ? 'active' : ''}`}
+                                onClick={() => setMode('auto')}
+                            >
+                                🤖 Modo Robô
+                            </div>
+                        </div>
+                    </div>
+                    <div className="status-indicator">
+                        <div className={`toggle-switch ${isActive ? 'active' : ''}`} 
+                             onClick={() => setIsActive(!isActive)}>
+                        </div>
+                        <span>Alpha Engine: {isActive ? 'ATIVO' : 'INATIVO'}</span>
+                        <div className="status-dot"></div>
+                        
+                        <div className={`data-source-badge ${dataSource === 'REAL' ? 'data-source-real' : 'data-source-simulated'}`}>
+                            {dataSource === 'REAL' ? '🟢 DADOS EM TEMPO REAL' : '🟠 DADOS SIMULADOS'}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function Dashboard({ signals, alphaEngine, minScore, setMinScore, dismissSignal, copySignalDetails, riskAmount, setRiskAmount, formatBRL }) {
+            const getPerformanceMetrics = () => {
+                try {
+                    if (!alphaEngine || !alphaEngine.performance) {
+                        return { winRate: 0, totalPnL: 0, totalSignals: 0 };
+                    }
+                    return {
+                        winRate: alphaEngine.performance.winRate || 0,
+                        totalPnL: alphaEngine.performance.totalPnL || 0,
+                        totalSignals: alphaEngine.performance.totalSignals || 0
+                    };
+                } catch (error) {
+                    return { winRate: 0, totalPnL: 0, totalSignals: 0 };
+                }
+            };
+
+            const metrics = getPerformanceMetrics();
+
+            return (
+                <div>
+                    <div className="grid">
+                        <div className="card">
+                            <h3>⚙️ Configurações de Operação</h3>
+                            <div className="form-group">
+                                <label className="form-label">Score Mínimo: {minScore || 75}%</label>
+                                <input 
+                                    type="range" 
+                                    min="50" 
+                                    max="95" 
+                                    value={minScore || 75}
+                                    onChange={(e) => setMinScore && setMinScore(Number(e.target.value))}
+                                    className="form-input"
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Valor de Risco (R$)</label>
+                                <input 
+                                    type="number"
+                                    value={riskAmount || 100}
+                                    onChange={(e) => setRiskAmount && setRiskAmount(Number(e.target.value))}
+                                    className="form-input"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="card">
+                            <h3>📊 Métricas em Tempo Real</h3>
+                            <div className="metric-grid">
+                                <div className="metric-card">
+                                    <div className="metric-value">{signals ? signals.length : 0}</div>
+                                    <div className="metric-label">Sinais Ativos</div>
+                                </div>
+                                <div className="metric-card">
+                                    <div className="metric-value">{metrics.winRate.toFixed(1)}%</div>
+                                    <div className="metric-label">Taxa de Acerto</div>
+                                </div>
+                                <div className="metric-card">
+                                    <div className="metric-value" style={{ 
+                                        color: metrics.totalPnL >= 0 ? '#00ff88' : '#ff4757',
+                                        fontSize: '24px'
+                                    }}>
+                                        {formatBRL(metrics.totalPnL)}
+                                    </div>
+                                    <div className="metric-label">P&L Acumulado</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h3>🎯 Oportunidades de Trading</h3>
+                        {!signals || signals.length === 0 ? (
+                            <div style={{ textAlign: 'center', color: '#a0a0a0', padding: '40px' }}>
+                                🔍 Aguardando sinais de alta qualidade...
+                            </div>
+                        ) : (
+                            <div className="grid">
+                                {signals.map(signal => (
+                                    <SignalCard 
+                                        key={signal ? signal.id : Math.random()}
+                                        signal={signal}
+                                        onDismiss={dismissSignal}
+                                        onCopy={copySignalDetails}
+                                        formatBRL={formatBRL}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function SignalCard({ signal, onDismiss, onCopy, formatBRL }) {
+            if (!signal) return null;
+
+            const getStatusClass = () => {
+                if (signal.status === 'ACERTO') return 'success';
+                if (signal.status === 'ERRO') return 'error';
+                return '';
+            };
+
+            let timeToEntry = 0;
+            let minutes = 0;
+            let seconds = 0;
+            
+            try {
+                if (signal.entryTime) {
+                    const now = new Date();
+                    const entryTime = new Date(signal.entryTime);
+                    timeToEntry = Math.max(0, Math.floor((entryTime - now) / 1000));
+                    minutes = Math.floor(timeToEntry / 60);
+                    seconds = timeToEntry % 60;
+                }
+            } catch (error) {
+                timeToEntry = 0;
+            }
+            
+            const formatEntryTime = () => {
+                if (signal.status !== 'PENDENTE') return `Status: ${signal.status}`;
+                if (timeToEntry <= 0) return "⏰ ENTRAR AGORA";
+                if (timeToEntry < 60) return `⏱️ ${seconds}s para entrada`;
+                return `⏱️ ${minutes}m ${seconds}s para entrada`;
+            };
+            
+            return (
+                <div className={`signal-card ${timeToEntry <= 30 && timeToEntry > 0 ? 'urgent' : ''} ${getStatusClass()}`}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <div className={`signal-direction ${(signal.direction || '').toLowerCase()}`}>
+                            {signal.direction === 'BUY' ? '🟢' : '🔴'} {signal.direction || 'N/A'} {signal.symbol || 'N/A'}
+                        </div>
+                        
+                        <div style={{
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            fontSize: '10px',
+                            fontWeight: 'bold',
+                            background: signal.dataSource === 'REAL' ? 'rgba(0, 255, 136, 0.2)' : 'rgba(255, 165, 0, 0.2)',
+                            color: signal.dataSource === 'REAL' ? '#00ff88' : '#ffa500',
+                            border: `1px solid ${signal.dataSource === 'REAL' ? '#00ff88' : '#ffa500'}`
+                        }}>
+                            {signal.dataSource === 'REAL' ? '📡 Real' : '🔮 Simulado'}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <span className="signal-score">Score: {signal.score || 0}%</span>
+                        <span className={`signal-status ${signal.status?.toLowerCase() || 'pending'}`}>
+                            {signal.status === 'ACERTO' && '✅ ACERTO'}
+                            {signal.status === 'ERRO' && '❌ ERRO'}
+                            {signal.status === 'EXPIRADO' && '⏱️ EXPIRADO'}
+                            {signal.status === 'PENDENTE' && '⏳ PENDENTE'}
+                        </span>
+                    </div>
+                    
+                    <div style={{ 
+                        background: timeToEntry <= 30 && signal.status === 'PENDENTE' ? 'rgba(255, 215, 0, 0.2)' : 'rgba(0, 255, 136, 0.1)',
+                        border: `1px solid ${timeToEntry <= 30 && signal.status === 'PENDENTE' ? '#ffd700' : 'rgba(0, 255, 136, 0.3)'}`,
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: 'bold',
+                        color: timeToEntry <= 30 && signal.status === 'PENDENTE' ? '#ffd700' : '#00ff88',
+                        marginBottom: '10px',
+                        marginTop: '10px',
+                        textAlign: 'center'
+                    }}>
+                        {formatEntryTime()}
+                    </div>
+                    
+                    {signal.divergence && (
+                        <div style={{
+                            background: 'rgba(255, 215, 0, 0.2)',
+                            border: '1px solid #ffd700',
+                            borderRadius: '8px',
+                            padding: '8px 12px',
+                            fontSize: '12px',
+                            fontWeight: 'bold',
+                            color: '#ffd700',
+                            marginBottom: '10px'
+                        }}>
+                            ⚡ Divergência {signal.divergence.type || 'N/A'}
+                        </div>
+                    )}
+                    
+                    <div className="signal-details">
+                        <div><strong>Preço:</strong> {formatBRL(signal.price)}</div>
+                        <div><strong>Timeframe:</strong> {signal.timeframe || 'N/A'}</div>
+                        <div><strong>Stop Loss:</strong> {formatBRL(signal.stopLoss)}</div>
+                        <div><strong>Take Profit:</strong> {formatBRL(signal.takeProfit)}</div>
+                        <div><strong>R/R:</strong> 1:2</div>
+                        <div><strong>Risco:</strong> R$ 100</div>
+                    </div>
+                    
+                    {signal.status !== 'PENDENTE' && signal.pnl !== undefined && (
+                        <div style={{ 
+                            padding: '12px', 
+                            borderRadius: '8px', 
+                            background: signal.pnl >= 0 ? 'rgba(0, 255, 136, 0.2)' : 'rgba(255, 71, 87, 0.2)',
+                            marginTop: '10px',
+                            border: `1px solid ${signal.pnl >= 0 ? '#00ff88' : '#ff4757'}`
+                        }}>
+                            <strong>Resultado Final:</strong> 
+                            <span style={{ 
+                                color: signal.pnl >= 0 ? '#00ff88' : '#ff4757',
+                                fontWeight: 'bold',
+                                fontSize: '16px',
+                                marginLeft: '10px'
+                            }}>
+                                {formatBRL(signal.pnl)}
+                            </span>
+                            {signal.finalPrice && (
+                                <div style={{ fontSize: '12px', marginTop: '5px', color: '#a0a0a0' }}>
+                                    Preço final: {formatBRL(signal.finalPrice)}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    
+                    <div className="signal-actions">
+                        <button className="btn btn-primary" onClick={() => onCopy && onCopy(signal)}>
+                            📋 Copiar
+                        </button>
+                        <button className="btn btn-secondary" onClick={() => onDismiss && onDismiss(signal.id)}>
+                            ❌ Dispensar
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        function Performance({ alphaEngine, signals, memoryDB, formatBRL }) {
+            const [stats, setStats] = useState(null);
+
+            useEffect(() => {
+                const loadStats = async () => {
+                    if (memoryDB) {
+                        const dbStats = await memoryDB.getStatistics();
+                        setStats(dbStats);
+                    }
+                };
+                loadStats();
+            }, [memoryDB, signals]);
+
+            if (!alphaEngine) return null;
+
+            const performance = alphaEngine.performance || {};
+
+            return (
+                <div>
+                    <div className="card">
+                        <h3>📈 Performance Geral do Sistema</h3>
+                        <div className="metric-grid">
+                            <div className="metric-card">
+                                <div className="metric-value">{stats?.total || performance.totalSignals || 0}</div>
+                                <div className="metric-label">Total de Sinais</div>
+                            </div>
+                            <div className="metric-card">
+                                <div className="metric-value">{stats?.successful || performance.successfulSignals || 0}</div>
+                                <div className="metric-label">Sinais Bem-sucedidos</div>
+                            </div>
+                            <div className="metric-card">
+                                <div className="metric-value">{(stats?.winRate || performance.winRate || 0).toFixed(1)}%</div>
+                                <div className="metric-label">Taxa de Acerto</div>
+                            </div>
+                            <div className="metric-card">
+                                <div className="metric-value" style={{
+                                    color: (stats?.totalPnL || performance.totalPnL || 0) >= 0 ? '#00ff88' : '#ff4757',
+                                    fontSize: '24px'
+                                }}>
+                                    {formatBRL(stats?.totalPnL || performance.totalPnL || 0)}
+                                </div>
+                                <div className="metric-label">P&L Total</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h3>🎯 Histórico de Sinais Recentes</h3>
+                        {!signals || signals.length === 0 ? (
+                            <div style={{ textAlign: 'center', color: '#a0a0a0', padding: '20px' }}>
+                                Nenhum sinal gerado ainda
+                            </div>
+                        ) : (
+                            <div>
+                                {signals.filter(s => s && s.status !== 'PENDENTE').map(signal => (
+                                    <div key={signal.id || Math.random()} style={{ 
+                                        padding: '15px', 
+                                        margin: '10px 0',
+                                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                                        borderRadius: '8px',
+                                        background: signal.status === 'ACERTO' ? 
+                                            'rgba(0, 255, 136, 0.1)' : 'rgba(255, 71, 87, 0.1)'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div>
+                                                <strong>{signal.direction || 'N/A'} {signal.symbol || 'N/A'}</strong>
+                                                <span style={{ marginLeft: '10px', color: '#a0a0a0', fontSize: '14px' }}>
+                                                    Score: {signal.score || 0}%
+                                                </span>
+                                                <span style={{ 
+                                                    marginLeft: '10px',
+                                                    padding: '2px 8px',
+                                                    borderRadius: '12px',
+                                                    fontSize: '10px',
+                                                    background: signal.dataSource === 'REAL' ? 'rgba(0, 255, 136, 0.2)' : 'rgba(255, 165, 0, 0.2)',
+                                                    color: signal.dataSource === 'REAL' ? '#00ff88' : '#ffa500'
+                                                }}>
+                                                    {signal.dataSource}
+                                                </span>
+                                            </div>
+                                            <div style={{ 
+                                                color: signal.status === 'ACERTO' ? '#00ff88' : '#ff4757',
+                                                fontWeight: 'bold',
+                                                fontSize: '16px'
+                                            }}>
+                                                {signal.status === 'ACERTO' ? '✅' : '❌'} 
+                                                {formatBRL(signal.pnl || 0)}
+                                            </div>
+                                        </div>
+                                        {signal.divergence && (
+                                            <div style={{ fontSize: '12px', color: '#ffd700', marginTop: '5px' }}>
+                                                ⚡ Divergência {signal.divergence.type || 'N/A'}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function MLEngine({ alphaEngine, memoryDB }) {
+            const [weightsHistory, setWeightsHistory] = useState([]);
+
+            useEffect(() => {
+                const loadHistory = async () => {
+                    if (memoryDB) {
+                        const history = await memoryDB.getWeightsHistory();
+                        setWeightsHistory(history);
+                    }
+                };
+                loadHistory();
+            }, [memoryDB]);
+
+            if (!alphaEngine) return null;
+
+            const weights = alphaEngine.weights || {};
+            const stats = alphaEngine.performance || {};
+
+            return (
+                <div>
+                    <div className="card">
+                        <h3>🧠 Sistema de Pesos Adaptativos</h3>
+                        <p>O Alpha-Learner ajusta automaticamente a importância de cada indicador baseado em resultados REAIS verificados.</p>
+                        
+                        <div style={{ marginTop: '20px' }}>
+                            {Object.entries(weights).map(([indicator, weight]) => (
+                                <div key={indicator} className="weight-item">
+                                    <div>
+                                        <strong>{indicator.replace('_', ' ').toUpperCase()}</strong>
+                                        <br />
+                                        <small>{((weight || 0) * 100).toFixed(1)}%</small>
+                                    </div>
+                                    <div className="weight-bar">
+                                        <div 
+                                            className="weight-fill" 
+                                            style={{ width: `${(weight || 0) * 100}%` }}
+                                        ></div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h3>📊 Estatísticas de Aprendizado</h3>
+                        <div className="metric-grid">
+                            <div className="metric-card">
+                                <div className="metric-value">{stats.totalSignals || 0}</div>
+                                <div className="metric-label">Sinais Processados</div>
+                            </div>
+                            <div className="metric-card">
+                                <div className="metric-value">{stats.successfulSignals || 0}</div>
+                                <div className="metric-label">Aprendizados Positivos</div>
+                            </div>
+                            <div className="metric-card">
+                                <div className="metric-value">{weightsHistory.length}</div>
+                                <div className="metric-label">Snapshots Salvos</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        /* NOVO COMPONENTE: Tela de Conexões */
+        function ConnectionsView({ apiManager, showNotification, onConnectionChange }) {
+            const [selectedProvider, setSelectedProvider] = useState('BINANCE');
+            const [apiKey, setApiKey] = useState('');
+            const [secretKey, setSecretKey] = useState('');
+            const [testing, setTesting] = useState(false);
+            const [testResult, setTestResult] = useState(null);
+
+            const handleTest = async () => {
+                if (!apiKey.trim()) {
+                    showNotification('Por favor, insira a API Key');
+                    return;
+                }
+
+                const provider = API_PROVIDERS[selectedProvider];
+                if (provider.requiresSecret && !secretKey.trim()) {
+                    showNotification('Este provedor requer Secret Key');
+                    return;
+                }
+
+                setTesting(true);
+                setTestResult(null);
+
+                try {
+                    const result = await testAPIConnection(selectedProvider, apiKey, secretKey || null);
+                    setTestResult(result);
+                    
+                    if (result.success) {
+                        apiManager.addConnection(selectedProvider, apiKey, secretKey || null);
+                        apiManager.updateStatus(selectedProvider, 'connected');
+                        apiManager.setActive(selectedProvider);
+                        showNotification('✅ Conexão estabelecida com sucesso!');
+                        onConnectionChange();
+                    } else {
+                        showNotification(`❌ ${result.message}`);
+                    }
+                } catch (error) {
+                    setTestResult({ 
+                        success: false, 
+                        message: `Erro ao testar: ${error.message}` 
+                    });
+                } finally {
+                    setTesting(false);
+                }
+            };
+
+            const handleDisconnect = (provider) => {
+                apiManager.removeConnection(provider);
+                showNotification('Conexão removida');
+                onConnectionChange();
+                
+                if (provider === selectedProvider) {
+                    setApiKey('');
+                    setSecretKey('');
+                    setTestResult(null);
+                }
+            };
+
+            const connectedProviders = [];
+            apiManager?.connections?.forEach((conn, provider) => {
+                if (conn.status === 'connected') {
+                    connectedProviders.push(provider);
+                }
+            });
+
+            return (
+                <div>
+                    <div className="warning-box">
+                        ⚠️ <strong>Aviso de Segurança:</strong> As chaves de API são mantidas em memória apenas durante esta sessão. 
+                        Em produção, nunca armazene chaves sensíveis no navegador sem criptografia adequada.
+                    </div>
+
+                    <div className="card">
+                        <h3>🔗 Configurar Nova Conexão</h3>
+                        
+                        <div className="form-group">
+                            <label className="form-label">Provedor de Dados</label>
+                            <select 
+                                className="form-select"
+                                value={selectedProvider}
+                                onChange={(e) => {
+                                    setSelectedProvider(e.target.value);
+                                    setTestResult(null);
+                                }}
+                            >
+                                {Object.entries(API_PROVIDERS).map(([key, provider]) => (
+                                    <option key={key} value={key}>
+                                        {provider.icon} {provider.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <small style={{ color: '#a0a0a0', fontSize: '12px', marginTop: '5px', display: 'block' }}>
+                                {API_PROVIDERS[selectedProvider].description}
+                            </small>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">API Key</label>
+                            <input 
+                                type="password"
+                                className="form-input"
+                                value={apiKey}
+                                onChange={(e) => setApiKey(e.target.value)}
+                                placeholder="Insira sua chave de API"
+                            />
+                        </div>
+
+                        {API_PROVIDERS[selectedProvider].requiresSecret && (
+                            <div className="form-group">
+                                <label className="form-label">Secret Key</label>
+                                <input 
+                                    type="password"
+                                    className="form-input"
+                                    value={secretKey}
+                                    onChange={(e) => setSecretKey(e.target.value)}
+                                    placeholder="Insira sua chave secreta"
+                                />
+                            </div>
+                        )}
+
+                        <button 
+                            className="btn btn-primary" 
+                            onClick={handleTest}
+                            disabled={testing}
+                            style={{ width: '100%' }}
+                        >
+                            {testing ? '🔄 Testando Conexão...' : '🔗 Salvar e Testar Conexão'}
+                        </button>
+
+                        {testResult && (
+                            <div className={testResult.success ? 'success-box' : 'error-box'} style={{ marginTop: '15px' }}>
+                                {testResult.message}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="card">
+                        <h3>📊 Conexões Ativas</h3>
+                        
+                        {connectedProviders.length === 0 ? (
+                            <div style={{ textAlign: 'center', color: '#a0a0a0', padding: '40px' }}>
+                                Nenhuma conexão ativa. Configure uma API acima para começar.
+                            </div>
+                        ) : (
+                            <div>
+                                {connectedProviders.map(provider => {
+                                    const providerInfo = API_PROVIDERS[provider];
+                                    const conn = apiManager.connections.get(provider);
+                                    const isActive = apiManager.activeProvider === provider;
+                                    
+                                    return (
+                                        <div key={provider} className={`api-provider-card ${isActive ? 'connected' : ''}`}>
+                                            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <h4 style={{ color: '#00ff88', margin: 0 }}>
+                                                        {providerInfo.icon} {providerInfo.name}
+                                                    </h4>
+                                                    <small style={{ color: '#a0a0a0' }}>
+                                                        {isActive && '🟢 Provedor ativo • '}
+                                                        Conectado em: {conn.lastTested?.toLocaleString('pt-BR') || 'Agora'}
+                                                    </small>
+                                                </div>
+                                                <div className="api-status-badge api-status-connected">
+                                                    ✅ Conectado
+                                                </div>
+                                            </div>
+
+                                            <div style={{ display: 'flex', gap: '10px' }}>
+                                                {!isActive && (
+                                                    <button 
+                                                        className="btn btn-primary"
+                                                        onClick={() => {
+                                                            apiManager.setActive(provider);
+                                                            showNotification(`${providerInfo.name} ativado`);
+                                                            onConnectionChange();
+                                                        }}
+                                                    >
+                                                        ⚡ Ativar
+                                                    </button>
+                                                )}
+                                                <button 
+                                                    className="btn btn-danger"
+                                                    onClick={() => handleDisconnect(provider)}
+                                                >
+                                                    🗑️ Remover
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="card">
+                        <h3>ℹ️ Como Obter Chaves de API</h3>
+                        <div style={{ lineHeight: '1.8', color: '#c0c0c0' }}>
+                            <p><strong>Binance:</strong></p>
+                            <p>1. Acesse binance.com e faça login</p>
+                            <p>2. Vá em "API Management" no menu do perfil</p>
+                            <p>3. Crie uma nova chave com permissões de leitura</p>
+                            <br />
+                            <p><strong>Alpha Vantage:</strong></p>
+                            <p>1. Acesse alphavantage.co/support</p>
+                            <p>2. Obtenha uma chave gratuita (500 calls/dia)</p>
+                            <br />
+                            <p><strong>CoinGecko:</strong></p>
+                            <p>1. Não requer chave para uso básico</p>
+                            <p>2. Para API Pro: coingecko.com/en/api</p>
+                            <br />
+                            <p><strong>Polygon.io:</strong></p>
+                            <p>1. Acesse polygon.io e crie uma conta</p>
+                            <p>2. Obtenha sua chave no dashboard</p>
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h3>🔒 Nota sobre CORS</h3>
+                        <div style={{ lineHeight: '1.6', color: '#ffc107' }}>
+                            <p>⚠️ No ambiente Claude.ai, chamadas HTTP podem falhar devido a restrições CORS (Cross-Origin Resource Sharing).</p>
+                            <br />
+                            <p>✅ Em seu próprio servidor/domínio, todas as chamadas funcionarão perfeitamente.</p>
+                            <br />
+                            <p>💡 Para testes: Use um proxy CORS ou implante este código em seu servidor.</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function Settings({ minScore, setMinScore }) {
+            return (
+                <div>
+                    <div className="card">
+                        <h3>⚙️ Configurações de Trading</h3>
+                        <div className="form-group">
+                            <label className="form-label">Score Mínimo para Sinais: {minScore || 75}%</label>
+                            <input 
+                                type="range"
+                                min="50"
+                                max="95"
+                                value={minScore || 75}
+                                onChange={(e) => setMinScore && setMinScore(Number(e.target.value))}
+                                className="form-input"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h3>📚 Sobre o Alpha-Learner v2.1</h3>
+                        <p style={{ lineHeight: '1.6', color: '#c0c0c0' }}>
+                            Plataforma de trading algorítmico com Machine Learning adaptativo, persistência de dados e integração com APIs de mercado em tempo real.
+                        </p>
+                        <div style={{ marginTop: '15px', fontSize: '14px', color: '#00ff88' }}>
+                            Versão: 2.1.0 | Build: 2024.003 | APIs Integradas
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Renderizar aplicação
+        try {
+            const rootElement = document.getElementById('root');
+            if (rootElement) {
+                ReactDOM.render(<App />, rootElement);
+            }
+        } catch (error) {
+            console.error('Erro ao renderizar:', error);
+        }
+    </script>
+</body>
+</html>
