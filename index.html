@@ -819,13 +819,13 @@
         }
 
         /* Funções de parsing para cada API */
-       function parseAlphaVantageData(data, interval) {
-    // interval já está no formato correto: "5min" ou "15min"
+      function parseAlphaVantageData(data, interval) {
     const timeSeriesKey = `Time Series (${interval})`;
     const timeSeries = data[timeSeriesKey];
     
     if (!timeSeries) {
-        throw new Error('Dados não encontrados na resposta');
+        console.error('Resposta Alpha Vantage:', data);
+        throw new Error('Dados não encontrados. Verifique se o símbolo está correto.');
     }
 
     const candles = [];
@@ -840,7 +840,10 @@
         });
     }
 
-    return candles.reverse().slice(-200);
+    // Ordenar por timestamp (do mais antigo para o mais recente)
+    const sortedCandles = candles.sort((a, b) => a.timestamp - b.timestamp);
+    console.log(`📊 Alpha Vantage: ${sortedCandles.length} velas parseadas`);
+    return sortedCandles.slice(-200); // Últimas 200 velas
 }
 
         function parseBinanceData(data) {
@@ -894,19 +897,29 @@
 
         /* Função para testar conexão */
         async function testAPIConnection(provider, apiKey, secretKey = null) {
-            try {
-                // Testar com símbolo padrão
-                const testSymbol = provider === 'BINANCE' ? 'BTCUSDT' : 'BTC';
-                await fetchRealMarketData(provider, apiKey, testSymbol, 'M5', secretKey);
-                return { success: true, message: 'Conexão bem-sucedida!' };
-            } catch (error) {
-                return { 
-                    success: false, 
-                    message: `Falha na conexão: ${error.message}` 
-                };
-            }
+    try {
+        // Escolher símbolo de teste apropriado para cada provider
+        let testSymbol = 'BTCUSDT';
+        if (provider === 'ALPHA_VANTAGE') {
+            testSymbol = 'IBM'; // Alpha Vantage funciona melhor com ações
+        } else if (provider === 'COINGECKO') {
+            testSymbol = 'BTC';
+        } else if (provider === 'POLYGON') {
+            testSymbol = 'AAPL'; // Polygon é focado em ações
         }
-
+        
+        console.log(`🧪 Testando ${provider} com símbolo ${testSymbol}...`);
+        await fetchRealMarketData(provider, apiKey, testSymbol, 'M5', secretKey);
+        console.log(`✅ Teste de ${provider} bem-sucedido`);
+        return { success: true, message: 'Conexão bem-sucedida!' };
+    } catch (error) {
+        console.error(`❌ Teste de ${provider} falhou:`, error);
+        return { 
+            success: false, 
+            message: `Falha na conexão: ${error.message}` 
+        };
+    }
+}
         /* ========================================
            CLASSES EXISTENTES (com modificações)
            ======================================== */
@@ -1004,11 +1017,14 @@
 
             // Método para substituir dados simulados por dados reais
             replaceWithRealData(realData) {
-                if (realData && realData.length > 0) {
-                    this.prices = realData;
-                    console.log(`Dados reais carregados: ${realData.length} velas`);
-                }
-            }
+    if (realData && realData.length > 0) {
+        this.prices = [...realData]; // Criar cópia para evitar referências
+        console.log(`📊 Dados substituídos: ${this.prices.length} velas`);
+        console.log(`📅 Última vela: ${new Date(this.prices[this.prices.length - 1].timestamp).toLocaleString()}`);
+        return true;
+    }
+    return false;
+}
         }
 
         class TechnicalIndicators {
@@ -1369,59 +1385,68 @@
             }, []);
 
             /* SWITCHER: Troca dinâmica entre dados simulados e reais */
-            useEffect(() => {
-                if (!isActive || !marketData || !alphaEngine || !apiManager) return;
+           useEffect(() => {
+    if (!isActive || !marketData || !alphaEngine || !apiManager) return;
 
-                const interval = setInterval(async () => {
-                    try {
-                        // Verificar se existe API ativa
-                        const activeConn = apiManager.getActiveConnection();
-                        let currentDataSource = 'SIMULADO';
-                        
-                        if (activeConn && activeConn.status === 'connected') {
-                            // Tentar buscar dados reais
-                            try {
-                                const realData = await fetchRealMarketData(
-                                    activeConn.provider,
-                                    activeConn.apiKey,
-                                    'BTCUSDT',
-                                    'M5',
-                                    activeConn.secretKey
-                                );
-                                
-                                if (realData && realData.length > 0) {
-                                    marketData.replaceWithRealData(realData);
-                                    currentDataSource = 'REAL';
-                                    setDataSource('REAL');
-                                }
-                            } catch (error) {
-                                console.log('Erro ao buscar dados reais, usando simulados:', error);
-                                marketData.addNewCandle();
-                                currentDataSource = 'SIMULADO';
-                                setDataSource('SIMULADO');
-                            }
-                        } else {
-                            // Usar dados simulados
-                            marketData.addNewCandle();
-                            currentDataSource = 'SIMULADO';
-                            setDataSource('SIMULADO');
-                        }
-                        
-                        const signal = alphaEngine.analyzeMarket(marketData, currentDataSource);
-                        
-                        if (signal && signal.score >= minScore) {
-                            setSignals(prev => [signal, ...prev.slice(0, 9)]);
-                            showNotification(`Novo sinal ${signal.direction} - Score: ${signal.score}%`);
-                            playAlert();
-                            scheduleSignalVerification(signal);
-                        }
-                    } catch (error) {
-                        console.log('Erro no loop principal:', error);
+    const interval = setInterval(async () => {
+        try {
+            const activeConn = apiManager.getActiveConnection();
+            let currentDataSource = 'SIMULADO';
+            
+            if (activeConn && activeConn.status === 'connected') {
+                try {
+                    // Escolher símbolo compatível com o provider
+                    let symbolToFetch = 'BTCUSDT';
+                    if (activeConn.provider === 'ALPHA_VANTAGE') {
+                        symbolToFetch = 'BTC'; // Alpha Vantage usa símbolos sem sufixo
+                    } else if (activeConn.provider === 'COINGECKO') {
+                        symbolToFetch = 'BTC'; // CoinGecko usa IDs
                     }
-                }, 3000);
+                    
+                    const realData = await fetchRealMarketData(
+                        activeConn.provider,
+                        activeConn.apiKey,
+                        symbolToFetch,
+                        'M5',
+                        activeConn.secretKey
+                    );
+                    
+                    if (realData && realData.length > 0) {
+                        console.log(`✅ Dados reais carregados: ${realData.length} velas de ${activeConn.provider}`);
+                        marketData.replaceWithRealData(realData);
+                        currentDataSource = 'REAL';
+                        setDataSource('REAL');
+                    } else {
+                        throw new Error('Array de dados vazio');
+                    }
+                } catch (error) {
+                    console.log('⚠️ Falha ao buscar dados reais, usando simulados:', error.message);
+                    marketData.addNewCandle();
+                    currentDataSource = 'SIMULADO';
+                    setDataSource('SIMULADO');
+                }
+            } else {
+                // Sem API ativa, usar dados simulados
+                marketData.addNewCandle();
+                currentDataSource = 'SIMULADO';
+                setDataSource('SIMULADO');
+            }
+            
+            const signal = alphaEngine.analyzeMarket(marketData, currentDataSource);
+            
+            if (signal && signal.score >= minScore) {
+                setSignals(prev => [signal, ...prev.slice(0, 9)]);
+                showNotification(`Novo sinal ${signal.direction} - Score: ${signal.score}%`);
+                playAlert();
+                scheduleSignalVerification(signal);
+            }
+        } catch (error) {
+            console.log('❌ Erro no loop principal:', error);
+        }
+    }, 30000); // Mudado de 3000 para 30000 (30 segundos) para evitar rate limiting
 
-                return () => clearInterval(interval);
-            }, [isActive, marketData, alphaEngine, minScore, apiManager]);
+    return () => clearInterval(interval);
+}, [isActive, marketData, alphaEngine, minScore, apiManager]);
 
             useEffect(() => {
                 if (!isActive) return;
@@ -2367,6 +2392,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
