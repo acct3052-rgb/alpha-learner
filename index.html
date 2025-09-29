@@ -1385,7 +1385,7 @@
             }, []);
 
             /* SWITCHER: Troca dinâmica entre dados simulados e reais */
-           useEffect(() => {
+          useEffect(() => {
     if (!isActive || !marketData || !alphaEngine || !apiManager) return;
 
     const interval = setInterval(async () => {
@@ -1398,10 +1398,12 @@
                     // Escolher símbolo compatível com o provider
                     let symbolToFetch = 'BTCUSDT';
                     if (activeConn.provider === 'ALPHA_VANTAGE') {
-                        symbolToFetch = 'BTC'; // Alpha Vantage usa símbolos sem sufixo
+                        symbolToFetch = 'IBM'; // Alpha Vantage funciona melhor com ações
                     } else if (activeConn.provider === 'COINGECKO') {
                         symbolToFetch = 'BTC'; // CoinGecko usa IDs
                     }
+                    
+                    console.log(`🔄 Buscando dados de ${activeConn.provider}...`);
                     
                     const realData = await fetchRealMarketData(
                         activeConn.provider,
@@ -1420,13 +1422,23 @@
                         throw new Error('Array de dados vazio');
                     }
                 } catch (error) {
-                    console.log('⚠️ Falha ao buscar dados reais, usando simulados:', error.message);
-                    marketData.addNewCandle();
+                    console.log('⚠️ Falha ao buscar dados reais:', error.message);
+                    
+                    // CORREÇÃO: Se estava em modo REAL e falhou, regenerar dados simulados
+                    if (dataSource === 'REAL') {
+                        console.log('🔄 Regenerando dados simulados após falha...');
+                        marketData.generateInitialData(); // Regenerar dados limpos
+                    } else {
+                        // Já estava em modo simulado, apenas adicionar vela
+                        marketData.addNewCandle();
+                    }
+                    
                     currentDataSource = 'SIMULADO';
                     setDataSource('SIMULADO');
                 }
             } else {
                 // Sem API ativa, usar dados simulados
+                console.log('📊 Modo simulado ativo');
                 marketData.addNewCandle();
                 currentDataSource = 'SIMULADO';
                 setDataSource('SIMULADO');
@@ -1443,10 +1455,10 @@
         } catch (error) {
             console.log('❌ Erro no loop principal:', error);
         }
-    }, 30000); // Mudado de 3000 para 30000 (30 segundos) para evitar rate limiting
+    }, 30000); // 30 segundos
 
     return () => clearInterval(interval);
-}, [isActive, marketData, alphaEngine, minScore, apiManager]);
+}, [isActive, marketData, alphaEngine, minScore, apiManager, dataSource]); // Adicionar dataSource nas dependências
 
             useEffect(() => {
                 if (!isActive) return;
@@ -2392,6 +2404,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
