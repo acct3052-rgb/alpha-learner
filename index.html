@@ -704,6 +704,11 @@
                         return parseBinanceData(data);
 
                     case 'COINGECKO':
+    // Verificar se há API key (obrigatória)
+    if (!apiKey || apiKey.trim() === '') {
+        throw new Error('CoinGecko requer uma API Key. Obtenha gratuitamente em coingecko.com');
+    }
+    
     // Mapeamento de símbolos para IDs da CoinGecko
     const symbolMap = {
         'BTC': 'bitcoin',
@@ -726,24 +731,29 @@
     
     const coinId = symbolMap[symbol.toUpperCase()] || 'bitcoin';
     
+    // Usar o endpoint correto com a chave no header
     url = `${API_PROVIDERS.COINGECKO.baseUrl}/coins/${coinId}/market_chart?vs_currency=usd&days=7&interval=hourly`;
     
-    // Tentar com e sem chave
-    const fetchOptions = apiKey ? {
+    response = await fetch(url, {
+        method: 'GET',
         headers: {
-            'x-cg-demo-api-key': apiKey
+            'accept': 'application/json',
+            'x-cg-demo-api-key': apiKey.trim()
         }
-    } : {};
-    
-    response = await fetch(url, fetchOptions);
+    });
     
     if (!response.ok) {
-        throw new Error(`Erro HTTP: ${response.status}`);
+        if (response.status === 401) {
+            throw new Error('API Key inválida ou expirada. Verifique sua chave em coingecko.com');
+        }
+        if (response.status === 429) {
+            throw new Error('Limite de requisições atingido. Aguarde alguns minutos.');
+        }
+        throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
     }
     
     data = await response.json();
     
-    // Verificar múltiplos tipos de erro
     if (data.error || data.status?.error_message) {
         throw new Error(data.error || data.status.error_message);
     }
@@ -2327,6 +2337,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
