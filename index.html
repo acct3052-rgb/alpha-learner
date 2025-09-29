@@ -1555,6 +1555,8 @@
             constructor() {
                 this.prices = [];
                 this.timeframe = 'M5';
+                this.lastPriceCheck = null;
+                this.stuckPriceCount = 0;
                 this.generateInitialData();
             }
 
@@ -1572,33 +1574,64 @@
                         volume: Math.random() * 1000000
                     });
                 }
+                console.log('📊 MarketData inicializado com', this.prices.length, 'candles');
             }
 
             getLatestPrice() {
-                return this.prices[this.prices.length - 1];
+                const latestPrice = this.prices[this.prices.length - 1];
+                
+                // Detecção de preço travado
+                if (this.lastPriceCheck && this.lastPriceCheck.close === latestPrice.close) {
+                    this.stuckPriceCount++;
+                    if (this.stuckPriceCount > 3) {
+                        console.warn('⚠️ PREÇO TRAVADO detectado! Mesmo preço por', this.stuckPriceCount, 'verificações');
+                        console.warn('   Último preço:', latestPrice.close);
+                        console.warn('   Forçando atualização...');
+                        this.addNewCandle();
+                        this.stuckPriceCount = 0;
+                    }
+                } else {
+                    this.stuckPriceCount = 0;
+                }
+                
+                this.lastPriceCheck = { ...latestPrice };
+                return latestPrice;
             }
 
             addNewCandle() {
                 const lastCandle = this.prices[this.prices.length - 1];
-                const newPrice = lastCandle.close + (Math.random() - 0.5) * 100;
+                // Aumentar a variação para evitar preços travados
+                const volatility = 150; // Aumentado de 100 para 150
+                const trend = (Math.random() - 0.5) * volatility;
+                const newPrice = lastCandle.close + trend;
+                
                 const newCandle = {
                     timestamp: Date.now(),
                     open: newPrice,
-                    high: newPrice + Math.random() * 30,
-                    low: newPrice - Math.random() * 30,
-                    close: newPrice + (Math.random() - 0.5) * 20,
+                    high: newPrice + Math.random() * 50,
+                    low: newPrice - Math.random() * 50,
+                    close: newPrice + (Math.random() - 0.5) * 40,
                     volume: Math.random() * 1000000
                 };
+                
                 this.prices.push(newCandle);
                 if (this.prices.length > 200) {
                     this.prices.shift();
                 }
+                
+                if (window.debugAudit && Math.random() < 0.1) { // Log 10% das vezes
+                    console.log('📈 Novo candle:', newCandle.close.toFixed(2), 'Variação:', trend.toFixed(2));
+                }
+                
                 return newCandle;
             }
 
             replaceWithRealData(realData) {
                 if (realData && realData.length > 0) {
                     this.prices = [...realData];
+                    console.log('✅ Dados REAIS carregados:', realData.length, 'candles');
+                    console.log('   Primeiro preço:', realData[0].close);
+                    console.log('   Último preço:', realData[realData.length - 1].close);
                     return true;
                 }
                 return false;
@@ -1777,30 +1810,41 @@
             }
 
             calculateRSIScore(rsi) {
-                if (rsi < 30) return 0.8;
-                if (rsi > 70) return -0.8;
+                // CORRIGIDO: RSI sobre-vendido indica possível reversão para CIMA (BUY)
+                // RSI sobre-comprado indica possível reversão para BAIXO (SELL)
+                if (rsi < 30) return 0.8;    // Sobre-vendido → provável alta → BUY
+                if (rsi > 70) return -0.8;   // Sobre-comprado → provável queda → SELL
                 return 0;
             }
 
             calculateMACDScore(macd) {
-                if (macd.macd > macd.signal && macd.histogram > 0) return 0.7;
-                if (macd.macd < macd.signal && macd.histogram < 0) return -0.7;
+                // CORRIGIDO: MACD positivo e crescente indica tendência de alta (BUY)
+                // MACD negativo e decrescente indica tendência de baixa (SELL)
+                if (macd.macd > macd.signal && macd.histogram > 0) return 0.7;  // Cruzamento para cima → BUY
+                if (macd.macd < macd.signal && macd.histogram < 0) return -0.7; // Cruzamento para baixo → SELL
                 return 0;
             }
 
             calculateBollingerScore(price, bollinger) {
+                // CORRIGIDO: Preço na banda inferior → sobre-vendido → BUY
+                // Preço na banda superior → sobre-comprado → SELL
                 const position = (price - bollinger.lower) / (bollinger.upper - bollinger.lower);
-                if (position < 0.2) return 0.6;
-                if (position > 0.8) return -0.6;
+                if (position < 0.2) return 0.6;   // Banda inferior → BUY
+                if (position > 0.8) return -0.6;  // Banda superior → SELL
                 return 0;
             }
 
             calculateStochasticScore(stochastic) {
                 let score = 0;
-                if (stochastic.k < 20) score += 0.5;
-                if (stochastic.k > 80) score -= 0.5;
-                if (stochastic.k > stochastic.d) score += 0.3;
-                else score -= 0.3;
+                // CORRIGIDO: Stochastic baixo → sobre-vendido → BUY
+                // Stochastic alto → sobre-comprado → SELL
+                if (stochastic.k < 20) score += 0.5;   // Sobre-vendido → BUY
+                if (stochastic.k > 80) score -= 0.5;   // Sobre-comprado → SELL
+                
+                // Cruzamento: K acima de D indica momento de alta
+                if (stochastic.k > stochastic.d) score += 0.3;  // Cruzamento para cima → BUY
+                else score -= 0.3;                               // Cruzamento para baixo → SELL
+                
                 return score;
             }
 
@@ -2044,10 +2088,27 @@
             useEffect(() => {
                 if (!isActive || !marketData || !alphaEngine || !apiManager) return;
 
+                let lastKnownPrice = null;
+                let samePriceCount = 0;
+
                 const interval = setInterval(async () => {
                     try {
                         const activeConn = apiManager.getActiveConnection();
                         let currentDataSource = 'SIMULADO';
+                        
+                        // Verificar se preço está travado ANTES de buscar dados
+                        const currentPrice = marketData.getLatestPrice();
+                        if (lastKnownPrice && currentPrice.close === lastKnownPrice) {
+                            samePriceCount++;
+                            if (samePriceCount > 2) {
+                                console.warn('⚠️ [LOOP] Preço não mudou por', samePriceCount, 'iterações. Forçando atualização...');
+                                marketData.addNewCandle();
+                                samePriceCount = 0;
+                            }
+                        } else {
+                            samePriceCount = 0;
+                        }
+                        lastKnownPrice = currentPrice.close;
                         
                         if (activeConn && activeConn.status === 'connected') {
                             try {
@@ -2075,6 +2136,7 @@
                                 }
                             } catch (error) {
                                 if (dataSource === 'REAL') {
+                                    console.warn('⚠️ Erro ao buscar dados reais, voltando para simulação');
                                     marketData.generateInitialData();
                                 } else {
                                     marketData.addNewCandle();
@@ -2083,6 +2145,7 @@
                                 setDataSource('SIMULADO');
                             }
                         } else {
+                            // Sem API ativa, usar simulador
                             marketData.addNewCandle();
                             currentDataSource = 'SIMULADO';
                             setDataSource('SIMULADO');
@@ -2123,7 +2186,7 @@
                             }
                         }
                     } catch (error) {
-                        console.log('Erro no loop:', error);
+                        console.error('❌ [LOOP] Erro:', error);
                     }
                 }, 30000);
 
