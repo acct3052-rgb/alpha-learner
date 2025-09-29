@@ -610,6 +610,7 @@
     <div id="root"></div>
 <script type="text/babel">
     const { useState, useEffect, useRef } = React;
+    window.auditSystemRef = null; // Global para acesso da classe
 
     /* ========================================
        MÓDULO DE INTEGRAÇÃO DE APIs
@@ -1952,6 +1953,7 @@ if (window.auditSystemRef) {
         const [memoryDB, setMemoryDB] = useState(null);
         const [apiManager, setApiManager] = useState(null);
         const [orderExecutor, setOrderExecutor] = useState(null);
+        const [auditSystem, setAuditSystem] = useState(null);
         const [maxPositions, setMaxPositions] = useState(3);
 
         const marketDataRef = useRef(null);
@@ -1965,6 +1967,7 @@ if (window.auditSystemRef) {
         useEffect(() => {
             try {
                 const savedConfig = localStorage.getItem('alpha_config');
+                window.auditSystemRef = auditSystemRef.current;
                 if (savedConfig) {
                     const config = JSON.parse(savedConfig);
                     setMinScore(config.minScore || 50);
@@ -1984,8 +1987,6 @@ if (window.auditSystemRef) {
                 setAlphaEngine(alphaEngineRef.current);
                 setApiManager(apiManagerRef.current);
                 setOrderExecutor(orderExecutorRef.current);
-
-                const [auditSystem, setAuditSystem] = useState(null);
                 setAuditSystem(auditSystemRef.current);
 
 
@@ -2408,6 +2409,15 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                             setMaxPositions={setMaxPositions}
                         />
                     )}
+                    {currentView === 'audit' && (
+    <AuditView 
+        auditSystem={auditSystem}
+        formatBRL={formatBRL}
+    />
+)}
+
+
+
                     
                     {currentView === 'connections' && (
                         <ConnectionsView 
@@ -2437,10 +2447,12 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
         const menuItems = [
             { id: 'dashboard', label: 'Dashboard', icon: '📊' },
             { id: 'robot', label: 'Painel do Robô', icon: '🤖' },
+            { id: 'audit', label: 'Auditoria', icon: '📋' },
             { id: 'performance', label: 'Performance', icon: '📈' },
             { id: 'ml-engine', label: 'ML Engine', icon: '🧠' },
             { id: 'connections', label: 'Conexões', icon: '🔗' },
             { id: 'settings', label: 'Configurações', icon: '⚙️' }
+           
         ];
 
         return (
@@ -3682,6 +3694,7 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
 </body>
 </html>
 </artifact>
+
 
 
 
