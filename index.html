@@ -1384,26 +1384,37 @@
                     'P&L', 'Resultado', 'Motivo', 'Fonte Dados'
                 ];
 
-                const rows = this.auditLogs.map(log => [
-                    log.signalId,
-                    new Date(log.generatedAt).toLocaleString('pt-BR'),
-                    log.hourOfDay + 'h',
-                    log.metadata.symbol,
-                    log.metadata.direction,
-                    log.scoreRange,
-                    log.prices.theoretical.toFixed(2),
-                    log.prices.actualEntry ? log.prices.actualEntry.toFixed(2) : 'N/A',
-                    log.prices.slippage ? log.prices.slippage.toFixed(2) : 'N/A',
-                    log.prices.actualExit ? log.prices.actualExit.toFixed(2) : 'N/A',
-                    log.prices.finalPnL !== null ? log.prices.finalPnL.toFixed(2) : 'N/A',
-                    log.outcome || 'PENDENTE',
-                    log.reason || 'Em andamento',
-                    log.metadata.dataSource
-                ]);
+                const rows = this.auditLogs.map(log => {
+                    // CORREÇÃO: Garantir ordem EXATA das colunas
+                    return [
+                        log.signalId,                                                           // ID
+                        new Date(log.generatedAt).toLocaleString('pt-BR'),                    // Gerado Em
+                        log.hourOfDay + 'h',                                                   // Horário
+                        log.metadata.symbol,                                                   // Símbolo
+                        log.metadata.direction,                                                // Direção
+                        log.scoreRange,                                                        // Score
+                        log.prices.theoretical ? log.prices.theoretical.toFixed(2) : 'N/A',   // Preço Teórico
+                        log.prices.actualEntry ? log.prices.actualEntry.toFixed(2) : 'N/A',   // Preço Entrada
+                        log.prices.slippage ? log.prices.slippage.toFixed(2) : 'N/A',         // Slippage
+                        log.prices.actualExit ? log.prices.actualExit.toFixed(2) : 'N/A',     // Preço Saída
+                        log.prices.finalPnL !== null && log.prices.finalPnL !== undefined ? log.prices.finalPnL.toFixed(2) : '0.00', // P&L
+                        log.outcome || 'PENDENTE',                                            // Resultado
+                        (log.reason || 'Em andamento').replace(/,/g, ';'),                   // Motivo (sem vírgulas)
+                        log.metadata.dataSource                                               // Fonte Dados
+                    ];
+                });
 
                 let csv = headers.join(',') + '\n';
                 rows.forEach(row => {
-                    csv += row.join(',') + '\n';
+                    // Escapar valores que contenham vírgulas
+                    const escapedRow = row.map(value => {
+                        const strValue = String(value);
+                        if (strValue.includes(',')) {
+                            return `"${strValue}"`;
+                        }
+                        return strValue;
+                    });
+                    csv += escapedRow.join(',') + '\n';
                 });
 
                 return csv;
@@ -1418,6 +1429,45 @@
                 );
                 
                 this.saveToStorage();
+            }
+
+            validateData() {
+                console.log('🔍 === VALIDAÇÃO DOS DADOS DE AUDITORIA ===');
+                console.log(`Total de logs: ${this.auditLogs.length}`);
+                
+                const withOutcome = this.auditLogs.filter(l => l.outcome && l.outcome !== 'PENDENTE');
+                const acertos = withOutcome.filter(l => l.outcome === 'ACERTO');
+                const erros = withOutcome.filter(l => l.outcome === 'ERRO');
+                const expirados = withOutcome.filter(l => l.outcome === 'EXPIRADO');
+                
+                console.log(`\nCom resultado: ${withOutcome.length}`);
+                console.log(`  ACERTO: ${acertos.length}`);
+                console.log(`  ERRO: ${erros.length}`);
+                console.log(`  EXPIRADO: ${expirados.length}`);
+                
+                const withPnL = this.auditLogs.filter(l => l.prices.finalPnL !== null && l.prices.finalPnL !== 0);
+                console.log(`\nCom P&L diferente de zero: ${withPnL.length}`);
+                
+                if (withOutcome.length === 0) {
+                    console.warn('⚠️ NENHUM log tem resultado final!');
+                }
+                
+                if (expirados.length > withOutcome.length * 0.8) {
+                    console.warn(`⚠️ ${(expirados.length/withOutcome.length*100).toFixed(1)}% dos sinais estão EXPIRANDO!`);
+                    console.warn('   Possíveis problemas:');
+                    console.warn('   - Alvos muito distantes');
+                    console.warn('   - Timeout muito curto');
+                    console.warn('   - Sistema de monitoramento não está funcionando');
+                }
+                
+                return {
+                    total: this.auditLogs.length,
+                    withOutcome: withOutcome.length,
+                    acertos: acertos.length,
+                    erros: erros.length,
+                    expirados: expirados.length,
+                    withPnL: withPnL.length
+                };
             }
         }
 
@@ -3048,7 +3098,24 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                 console.log('===============================================');
                 
                 if (auditSystem) {
-                    alert(`Sistema OK!\nLogs coletados: ${auditSystem.auditLogs.length}\nVerifique o console para detalhes.`);
+                    const validation = auditSystem.validateData();
+                    
+                    let message = `Sistema OK!\n\nLogs totais: ${validation.total}\n`;
+                    message += `Com resultado: ${validation.withOutcome}\n`;
+                    message += `Acertos: ${validation.acertos}\n`;
+                    message += `Erros: ${validation.erros}\n`;
+                    message += `Expirados: ${validation.expirados}\n\n`;
+                    
+                    if (validation.withOutcome === 0) {
+                        message += '⚠️ NENHUM sinal tem resultado final!\n';
+                        message += 'O sistema pode não estar verificando os sinais corretamente.';
+                    } else if (validation.expirados > validation.withOutcome * 0.8) {
+                        message += `⚠️ ${(validation.expirados/validation.withOutcome*100).toFixed(1)}% dos sinais estão EXPIRANDO!\n`;
+                        message += 'Considere ajustar os alvos ou timeouts.';
+                    }
+                    
+                    message += '\n\nVerifique o console para mais detalhes.';
+                    alert(message);
                 } else {
                     alert('ERRO: Sistema de auditoria não inicializado!');
                 }
@@ -3061,6 +3128,42 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                     setLogs(auditSystem.getRecentLogs(50));
                     alert('Dados antigos removidos!');
                 }
+            };
+
+            const handleValidateData = () => {
+                if (!auditSystem) return;
+                
+                console.log('\n🔍 === VALIDAÇÃO MANUAL ===');
+                const validation = auditSystem.validateData();
+                
+                let alertMsg = '📊 VALIDAÇÃO DOS DADOS\n\n';
+                alertMsg += `Total de logs: ${validation.total}\n`;
+                alertMsg += `Com resultado final: ${validation.withOutcome}\n`;
+                alertMsg += `├─ Acertos: ${validation.acertos}\n`;
+                alertMsg += `├─ Erros: ${validation.erros}\n`;
+                alertMsg += `└─ Expirados: ${validation.expirados}\n\n`;
+                
+                if (validation.withOutcome === 0) {
+                    alertMsg += '❌ PROBLEMA: Nenhum sinal tem resultado!\n';
+                    alertMsg += 'O sistema não está verificando os sinais.';
+                } else {
+                    const winRate = validation.withOutcome > 0 ? (validation.acertos / validation.withOutcome * 100) : 0;
+                    const expiredRate = validation.withOutcome > 0 ? (validation.expirados / validation.withOutcome * 100) : 0;
+                    
+                    alertMsg += `Win Rate: ${winRate.toFixed(1)}%\n`;
+                    alertMsg += `Taxa de Expiração: ${expiredRate.toFixed(1)}%\n\n`;
+                    
+                    if (expiredRate > 80) {
+                        alertMsg += '⚠️ Muitos sinais expirando!\n';
+                        alertMsg += 'Ajuste os alvos ou timeouts.';
+                    } else if (expiredRate > 50) {
+                        alertMsg += '⚠️ Taxa de expiração alta.';
+                    } else {
+                        alertMsg += '✅ Sistema funcionando corretamente!';
+                    }
+                }
+                
+                alert(alertMsg);
             };
 
             if (!auditSystem) {
@@ -3101,6 +3204,9 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                             <div style={{ display: 'flex', gap: '10px' }}>
                                 <button className="btn btn-secondary" onClick={handleDiagnostic}>
                                     🔍 Diagnóstico
+                                </button>
+                                <button className="btn btn-secondary" onClick={handleValidateData}>
+                                    ✅ Validar Dados
                                 </button>
                                 <button className="btn btn-secondary" onClick={handleClearOldData}>
                                     🗑️ Limpar Antigos
