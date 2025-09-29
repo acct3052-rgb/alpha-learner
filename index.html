@@ -2046,19 +2046,50 @@ const getExactEntryTime = () => {
                     </div>
                     
                     <div style={{ 
-                        background: timeToEntry <= 30 && signal.status === 'PENDENTE' ? 'rgba(255, 215, 0, 0.2)' : 'rgba(0, 255, 136, 0.1)',
-                        border: `1px solid ${timeToEntry <= 30 && signal.status === 'PENDENTE' ? '#ffd700' : 'rgba(0, 255, 136, 0.3)'}`,
-                        padding: '8px 12px',
-                        borderRadius: '8px',
-                        fontSize: '14px',
-                        fontWeight: 'bold',
-                        color: timeToEntry <= 30 && signal.status === 'PENDENTE' ? '#ffd700' : '#00ff88',
-                        marginBottom: '10px',
-                        marginTop: '10px',
-                        textAlign: 'center'
-                    }}>
-                        {formatEntryTime()}
-                    </div>
+    background: timeToEntry <= 30 && signal.status === 'PENDENTE' ? 'rgba(255, 215, 0, 0.2)' : 'rgba(0, 255, 136, 0.1)',
+    border: `1px solid ${timeToEntry <= 30 && signal.status === 'PENDENTE' ? '#ffd700' : 'rgba(0, 255, 136, 0.3)'}`,
+    padding: '8px 12px',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    color: timeToEntry <= 30 && signal.status === 'PENDENTE' ? '#ffd700' : '#00ff88',
+    marginBottom: '10px',
+    marginTop: '10px',
+    textAlign: 'center'
+}}>
+    {formatEntryTime()}
+</div>
+
+{/* ADICIONE ESTE NOVO BLOCO AQUI: */}
+{signal.status === 'PENDENTE' && (
+    <div style={{
+        background: 'rgba(0, 184, 217, 0.15)',
+        border: '1px solid rgba(0, 184, 217, 0.4)',
+        borderRadius: '8px',
+        padding: '10px 12px',
+        marginBottom: '10px',
+        fontSize: '13px',
+        fontWeight: 'bold',
+        color: '#00b8d9',
+        textAlign: 'center',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '8px'
+    }}>
+        <span style={{ fontSize: '16px' }}>🎯</span>
+        <div>
+            <div style={{ fontSize: '11px', opacity: 0.8, marginBottom: '2px' }}>
+                HORÁRIO EXATO DE ENTRADA
+            </div>
+            <div style={{ fontSize: '16px', letterSpacing: '1px' }}>
+                {getExactEntryTime()}
+            </div>
+        </div>
+    </div>
+)}
+
+{signal.divergence && (
                     
                     {signal.divergence && (
                         <div style={{
@@ -2603,6 +2634,7 @@ const getExactEntryTime = () => {
 </body>
 
 </html>
+
 
 
 
