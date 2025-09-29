@@ -1658,7 +1658,7 @@
         const [marketData, setMarketData] = useState(null);
         const [alphaEngine, setAlphaEngine] = useState(null);
         const [notification, setNotification] = useState(null);
-        const [minScore, setMinScore] = useState(40);
+        const [minScore, setMinScore] = useState(20);
         const [riskAmount, setRiskAmount] = useState(100);
         const [dataSource, setDataSource] = useState('SIMULADO');
         const [memoryDB, setMemoryDB] = useState(null);
@@ -2271,7 +2271,7 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                                 <label className="form-label">Score Mínimo: {minScore}%</label>
                                 <input 
                                     type="range" 
-                                    min="50" 
+                                    min="20" 
                                     max="95" 
                                     value={minScore}
                                     onChange={(e) => setMinScore(Number(e.target.value))}
@@ -3126,5 +3126,6 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
 </body>
 </html>
 </artifact>
+
 
 
