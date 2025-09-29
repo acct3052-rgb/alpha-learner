@@ -925,51 +925,84 @@
            ======================================== */
 
         class MemoryDB {
-            constructor() {
-                this.signals_history = [];
-                this.ml_weights_evolution = [];
-                this.config_snapshots = [];
-            }
+    constructor() {
+        this.signals_history = [];
+        this.ml_weights_evolution = [];
+        this.config_snapshots = [];
+        this.loadFromStorage(); // Adicionar
+    }
 
-            async saveSignal(signal) {
-                this.signals_history.push({
-                    ...signal,
-                    savedAt: new Date().toISOString()
+    loadFromStorage() {
+        try {
+            const saved = localStorage.getItem('alpha_learner_data');
+            if (saved) {
+                const data = JSON.parse(saved);
+                this.signals_history = data.signals_history || [];
+                this.ml_weights_evolution = data.ml_weights_evolution || [];
+                this.config_snapshots = data.config_snapshots || [];
+                console.log('📦 Dados carregados:', {
+                    sinais: this.signals_history.length,
+                    snapshots: this.ml_weights_evolution.length
                 });
             }
-
-            async getAllSignals() {
-                return [...this.signals_history];
-            }
-
-            async saveWeightsSnapshot(weights, performance) {
-                const snapshot = {
-                    date: new Date().toISOString(),
-                    weights: { ...weights },
-                    performance: { ...performance }
-                };
-                this.ml_weights_evolution.push(snapshot);
-            }
-
-            async getWeightsHistory() {
-                return [...this.ml_weights_evolution];
-            }
-
-            async getStatistics() {
-                const signals = await this.getAllSignals();
-                const completed = signals.filter(s => s.status !== 'PENDENTE');
-                const successful = completed.filter(s => s.status === 'ACERTO');
-                
-                return {
-                    total: signals.length,
-                    completed: completed.length,
-                    successful: successful.length,
-                    winRate: completed.length > 0 ? (successful.length / completed.length) * 100 : 0,
-                    totalPnL: completed.reduce((sum, s) => sum + (s.pnl || 0), 0)
-                };
-            }
+        } catch (error) {
+            console.error('Erro ao carregar dados:', error);
         }
+    }
 
+    saveToStorage() {
+        try {
+            const data = {
+                signals_history: this.signals_history,
+                ml_weights_evolution: this.ml_weights_evolution,
+                config_snapshots: this.config_snapshots
+            };
+            localStorage.setItem('alpha_learner_data', JSON.stringify(data));
+        } catch (error) {
+            console.error('Erro ao salvar dados:', error);
+        }
+    }
+
+    async saveSignal(signal) {
+        this.signals_history.push({
+            ...signal,
+            savedAt: new Date().toISOString()
+        });
+        this.saveToStorage(); // Adicionar
+    }
+
+    async getAllSignals() {
+        return [...this.signals_history];
+    }
+
+    async saveWeightsSnapshot(weights, performance) {
+        const snapshot = {
+            date: new Date().toISOString(),
+            weights: { ...weights },
+            performance: { ...performance }
+        };
+        this.ml_weights_evolution.push(snapshot);
+        this.saveToStorage(); // Adicionar
+    }
+
+    async getWeightsHistory() {
+        return [...this.ml_weights_evolution];
+    }
+
+    async getStatistics() {
+        const signals = await this.getAllSignals();
+        const completed = signals.filter(s => s.status !== 'PENDENTE');
+        const successful = completed.filter(s => s.status === 'ACERTO');
+        
+        return {
+            total: signals.length,
+            completed: completed.length,
+            successful: successful.length,
+            winRate: completed.length > 0 ? (successful.length / completed.length) * 100 : 0,
+            totalPnL: completed.reduce((sum, s) => sum + (s.pnl || 0), 0)
+        };
+    }
+}
         class MarketDataSimulator {
             constructor() {
                 this.prices = [];
@@ -1370,21 +1403,40 @@
             const verificationTimers = useRef(new Map());
 
             useEffect(() => {
-                try {
-                    memoryDBRef.current = new MemoryDB();
-                    marketDataRef.current = new MarketDataSimulator();
-                    alphaEngineRef.current = new AlphaEngine(memoryDBRef.current);
-                    apiManagerRef.current = new APIConnectionManager();
-                    
-                    setMemoryDB(memoryDBRef.current);
-                    setMarketData(marketDataRef.current);
-                    setAlphaEngine(alphaEngineRef.current);
-                    setApiManager(apiManagerRef.current);
-                } catch (error) {
-                    console.log('Erro na inicialização:', error);
-                }
-            }, []);
+    try {
+        // Carregar configurações salvas
+        const savedConfig = localStorage.getItem('alpha_config');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            setIsActive(config.isActive || false);
+            setMinScore(config.minScore || 50);
+            setRiskAmount(config.riskAmount || 100);
+            console.log('⚙️ Configurações carregadas:', config);
+        }
 
+        memoryDBRef.current = new MemoryDB();
+        marketDataRef.current = new MarketDataSimulator();
+        alphaEngineRef.current = new AlphaEngine(memoryDBRef.current);
+        apiManagerRef.current = new APIConnectionManager();
+        
+        setMemoryDB(memoryDBRef.current);
+        setMarketData(marketDataRef.current);
+        setAlphaEngine(alphaEngineRef.current);
+        setApiManager(apiManagerRef.current);
+    } catch (error) {
+        console.log('Erro na inicialização:', error);
+    }
+}, []);
+
+// Adicione novo useEffect para salvar configurações
+useEffect(() => {
+    const config = {
+        isActive,
+        minScore,
+        riskAmount
+    };
+    localStorage.setItem('alpha_config', JSON.stringify(config));
+}, [isActive, minScore, riskAmount]);
             /* SWITCHER: Troca dinâmica entre dados simulados e reais */
          useEffect(() => {
     if (!isActive || !marketData || !alphaEngine || !apiManager) return;
@@ -2460,6 +2512,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
