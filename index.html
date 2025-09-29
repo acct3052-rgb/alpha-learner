@@ -1350,6 +1350,7 @@
 
         function App() {
             const [connectionVersion, setConnectionVersion] = useState(0);
+            const [currentView, setCurrentView] = useState('dashboard');
             const [mode, setMode] = useState('manual');
             const [isActive, setIsActive] = useState(false);
             const [signals, setSignals] = useState([]);
@@ -1385,90 +1386,59 @@
             }, []);
 
             /* SWITCHER: Troca dinâmica entre dados simulados e reais */
-          useEffect(() => {
+         useEffect(() => {
     if (!isActive || !marketData || !alphaEngine || !apiManager) return;
 
-    let hasLoadedRealData = false; // Flag para controlar carregamento inicial
-
-    // Função para buscar dados reais (chamada apenas uma vez)
-    const loadRealData = async (activeConn) => {
-        try {
-            let symbolToFetch = 'BTCUSDT';
-            if (activeConn.provider === 'ALPHA_VANTAGE') {
-                symbolToFetch = 'IBM';
-            } else if (activeConn.provider === 'COINGECKO') {
-                symbolToFetch = 'BTC';
-            }
-            
-            console.log(`🔄 Carregando dados iniciais de ${activeConn.provider}...`);
-            
-            const realData = await fetchRealMarketData(
-                activeConn.provider,
-                activeConn.apiKey,
-                symbolToFetch,
-                'M5',
-                activeConn.secretKey
-            );
-            
-            if (realData && realData.length > 0) {
-                console.log(`✅ Dados reais carregados: ${realData.length} velas de ${activeConn.provider}`);
-                marketData.replaceWithRealData(realData);
-                hasLoadedRealData = true;
-                setDataSource('REAL');
-                return true;
-            }
-        } catch (error) {
-            console.log('⚠️ Falha ao buscar dados reais:', error.message);
-            return false;
-        }
-        return false;
-    };
-
-    // Carregar dados reais na primeira execução se houver API ativa
-    const activeConn = apiManager.getActiveConnection();
-    if (activeConn && activeConn.status === 'connected') {
-        loadRealData(activeConn);
-    }
-
-    // Intervalo para gerar novos sinais
     const interval = setInterval(async () => {
         try {
             const activeConn = apiManager.getActiveConnection();
             let currentDataSource = 'SIMULADO';
             
             if (activeConn && activeConn.status === 'connected') {
-                // Se já carregou dados reais, apenas simular atualização de preço
-                // (Em produção, você conectaria a um WebSocket para updates em tempo real)
-                if (hasLoadedRealData) {
-                    console.log('📊 Usando dados reais carregados');
-                    currentDataSource = 'REAL';
-                    setDataSource('REAL');
-                } else {
-                    // Tentar carregar dados reais se ainda não carregou
-                    const loaded = await loadRealData(activeConn);
-                    if (loaded) {
+                try {
+                    let symbolToFetch = 'BTCUSDT';
+                    if (activeConn.provider === 'ALPHA_VANTAGE') {
+                        symbolToFetch = 'IBM';
+                    } else if (activeConn.provider === 'COINGECKO') {
+                        symbolToFetch = 'BTC';
+                    }
+                    
+                    console.log(`🔄 Buscando dados de ${activeConn.provider}...`);
+                    
+                    const realData = await fetchRealMarketData(
+                        activeConn.provider,
+                        activeConn.apiKey,
+                        symbolToFetch,
+                        'M5',
+                        activeConn.secretKey
+                    );
+                    
+                    if (realData && realData.length > 0) {
+                        console.log(`✅ Dados reais carregados: ${realData.length} velas de ${activeConn.provider}`);
+                        marketData.replaceWithRealData(realData);
                         currentDataSource = 'REAL';
                         setDataSource('REAL');
                     } else {
-                        // Fallback para simulado
-                        if (dataSource === 'REAL') {
-                            console.log('🔄 Regenerando dados simulados após falha...');
-                            marketData.generateInitialData();
-                        } else {
-                            marketData.addNewCandle();
-                        }
-                        currentDataSource = 'SIMULADO';
-                        setDataSource('SIMULADO');
-                        hasLoadedRealData = false;
+                        throw new Error('Array de dados vazio');
                     }
+                } catch (error) {
+                    console.log('⚠️ Falha ao buscar dados reais:', error.message);
+                    
+                    if (dataSource === 'REAL') {
+                        console.log('🔄 Regenerando dados simulados após falha...');
+                        marketData.generateInitialData();
+                    } else {
+                        marketData.addNewCandle();
+                    }
+                    
+                    currentDataSource = 'SIMULADO';
+                    setDataSource('SIMULADO');
                 }
             } else {
-                // Sem API ativa, usar dados simulados
                 console.log('📊 Modo simulado ativo');
                 marketData.addNewCandle();
                 currentDataSource = 'SIMULADO';
                 setDataSource('SIMULADO');
-                hasLoadedRealData = false;
             }
             
             const signal = alphaEngine.analyzeMarket(marketData, currentDataSource);
@@ -1482,13 +1452,12 @@
         } catch (error) {
             console.log('❌ Erro no loop principal:', error);
         }
-    }, 30000); // 30 segundos
+    }, 30000);
 
-    return () => {
-        clearInterval(interval);
-        hasLoadedRealData = false;
-    };
+    return () => clearInterval(interval);
 }, [isActive, marketData, alphaEngine, minScore, apiManager, dataSource]);
+
+            
             useEffect(() => {
                 if (!isActive) return;
                 
@@ -2474,6 +2443,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
