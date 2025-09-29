@@ -1413,14 +1413,15 @@ loadFromStorage() {
             useEffect(() => {
     try {
         // Carregar configurações salvas
-        const savedConfig = localStorage.getItem('alpha_config');
-        if (savedConfig) {
-            const config = JSON.parse(savedConfig);
-            setIsActive(config.isActive || false);
-            setMinScore(config.minScore || 50);
-            setRiskAmount(config.riskAmount || 100);
-            console.log('⚙️ Configurações carregadas:', config);
-        }
+        // Linha ~1215
+const savedConfig = localStorage.getItem('alpha_config');
+if (savedConfig) {
+    const config = JSON.parse(savedConfig);
+    // setIsActive(config.isActive || false); // ← REMOVA ou comente esta linha
+    setMinScore(config.minScore || 50);
+    setRiskAmount(config.riskAmount || 100);
+    console.log('⚙️ Configurações carregadas:', config);
+}
 
         memoryDBRef.current = new MemoryDB();
         marketDataRef.current = new MarketDataSimulator();
@@ -2544,6 +2545,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
