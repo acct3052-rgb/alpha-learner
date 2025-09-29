@@ -1042,6 +1042,290 @@
         }
     }
 
+
+/* ========================================
+   SISTEMA DE AUDITORIA E VALIDAÇÃO
+   ======================================== */
+
+class AuditSystem {
+    constructor() {
+        this.auditLogs = [];
+        this.performanceByHour = {};
+        this.performanceByScore = {};
+        this.indicatorPerformance = {};
+        this.loadFromStorage();
+    }
+
+    loadFromStorage() {
+        try {
+            const saved = localStorage.getItem('audit_system_data');
+            if (saved) {
+                const data = JSON.parse(saved);
+                this.auditLogs = data.auditLogs || [];
+                this.performanceByHour = data.performanceByHour || {};
+                this.performanceByScore = data.performanceByScore || {};
+                this.indicatorPerformance = data.indicatorPerformance || {};
+            }
+        } catch (e) {
+            console.error('Erro ao carregar auditoria:', e);
+        }
+    }
+
+    saveToStorage() {
+        try {
+            localStorage.setItem('audit_system_data', JSON.stringify({
+                auditLogs: this.auditLogs.slice(-500),
+                performanceByHour: this.performanceByHour,
+                performanceByScore: this.performanceByScore,
+                indicatorPerformance: this.indicatorPerformance
+            }));
+        } catch (e) {
+            console.error('Erro ao salvar auditoria:', e);
+        }
+    }
+
+    logSignalGeneration(signal, currentPrice, indicators) {
+        const candleCloseTime = new Date(signal.timestamp);
+        candleCloseTime.setSeconds(0, 0);
+        candleCloseTime.setMinutes(Math.floor(candleCloseTime.getMinutes() / 5) * 5 + 5);
+
+        const log = {
+            signalId: signal.id,
+            generatedAt: signal.timestamp.toISOString(),
+            candleCloseTime: candleCloseTime.toISOString(),
+            timeDifference: (candleCloseTime - signal.timestamp) / 1000,
+            
+            prices: {
+                theoretical: signal.price,
+                actualEntry: null,
+                slippage: null,
+                actualExit: null,
+                finalPnL: null
+            },
+            
+            indicators: this.formatIndicators(signal, indicators),
+            
+            scoreRange: this.getScoreRange(signal.score),
+            hourOfDay: signal.timestamp.getHours(),
+            
+            outcome: null,
+            outcomeTime: null,
+            reason: null,
+            
+            metadata: {
+                direction: signal.direction,
+                symbol: signal.symbol,
+                timeframe: signal.timeframe,
+                dataSource: signal.dataSource,
+                hasDivergence: signal.divergence ? true : false
+            }
+        };
+
+        this.auditLogs.push(log);
+        if (this.auditLogs.length > 500) {
+            this.auditLogs = this.auditLogs.slice(-500);
+        }
+        
+        this.saveToStorage();
+        return log;
+    }
+
+    formatIndicators(signal, indicators) {
+        const formatted = {};
+        
+        signal.contributors.forEach(indicator => {
+            formatted[indicator] = {
+                weight: indicators.weights ? indicators.weights[indicator] : 0,
+                contribution: 0
+            };
+        });
+
+        return formatted;
+    }
+
+    getScoreRange(score) {
+        if (score >= 90) return '90-100';
+        if (score >= 80) return '80-89';
+        if (score >= 70) return '70-79';
+        if (score >= 60) return '60-69';
+        if (score >= 50) return '50-59';
+        return '0-49';
+    }
+
+    updateSignalOutcome(signalId, outcome, finalPrice, pnl, executionDetails = null) {
+        const log = this.auditLogs.find(l => l.signalId === signalId);
+        
+        if (log) {
+            log.outcome = outcome;
+            log.outcomeTime = new Date().toISOString();
+            log.prices.actualExit = finalPrice;
+            log.prices.finalPnL = pnl;
+            
+            if (executionDetails) {
+                log.prices.actualEntry = executionDetails.executedPrice;
+                log.prices.slippage = Math.abs(executionDetails.executedPrice - log.prices.theoretical);
+            }
+
+            const duration = (new Date(log.outcomeTime) - new Date(log.generatedAt)) / 60000;
+            log.reason = this.determineReason(outcome, duration);
+
+            this.updateStatistics(log);
+            this.saveToStorage();
+        }
+    }
+
+    determineReason(outcome, durationMinutes) {
+        if (outcome === 'ACERTO') {
+            return `Atingiu take profit em ${Math.floor(durationMinutes)}min`;
+        } else if (outcome === 'ERRO') {
+            return `Atingiu stop loss em ${Math.floor(durationMinutes)}min`;
+        } else if (outcome === 'EXPIRADO') {
+            return `Expirou após ${Math.floor(durationMinutes)}min sem atingir alvos`;
+        } else if (outcome === 'CANCELADO') {
+            return 'Cancelado manualmente';
+        }
+        return 'Desconhecido';
+    }
+
+    updateStatistics(log) {
+        if (!log.outcome || log.outcome === 'PENDENTE') return;
+
+        // Por horário
+        const hour = log.hourOfDay;
+        if (!this.performanceByHour[hour]) {
+            this.performanceByHour[hour] = { total: 0, wins: 0, losses: 0, expired: 0, totalPnL: 0 };
+        }
+        this.performanceByHour[hour].total++;
+        if (log.outcome === 'ACERTO') this.performanceByHour[hour].wins++;
+        else if (log.outcome === 'ERRO') this.performanceByHour[hour].losses++;
+        else if (log.outcome === 'EXPIRADO') this.performanceByHour[hour].expired++;
+        this.performanceByHour[hour].totalPnL += log.prices.finalPnL || 0;
+
+        // Por faixa de score
+        const scoreRange = log.scoreRange;
+        if (!this.performanceByScore[scoreRange]) {
+            this.performanceByScore[scoreRange] = { total: 0, wins: 0, losses: 0, expired: 0 };
+        }
+        this.performanceByScore[scoreRange].total++;
+        if (log.outcome === 'ACERTO') this.performanceByScore[scoreRange].wins++;
+        else if (log.outcome === 'ERRO') this.performanceByScore[scoreRange].losses++;
+        else if (log.outcome === 'EXPIRADO') this.performanceByScore[scoreRange].expired++;
+
+        // Por indicador
+        Object.keys(log.indicators).forEach(indicator => {
+            if (!this.indicatorPerformance[indicator]) {
+                this.indicatorPerformance[indicator] = { total: 0, wins: 0, losses: 0 };
+            }
+            this.indicatorPerformance[indicator].total++;
+            if (log.outcome === 'ACERTO') this.indicatorPerformance[indicator].wins++;
+            else if (log.outcome === 'ERRO') this.indicatorPerformance[indicator].losses++;
+        });
+    }
+
+    getHealthAlerts() {
+        const alerts = [];
+        const recentLogs = this.auditLogs.slice(-20).filter(l => l.outcome && l.outcome !== 'PENDENTE');
+
+        if (recentLogs.length >= 10) {
+            const winRate = (recentLogs.filter(l => l.outcome === 'ACERTO').length / recentLogs.length) * 100;
+            
+            if (winRate < 40) {
+                alerts.push({
+                    type: 'error',
+                    message: `Taxa de acerto crítica: ${winRate.toFixed(1)}% nos últimos ${recentLogs.length} sinais`
+                });
+            } else if (winRate < 50) {
+                alerts.push({
+                    type: 'warning',
+                    message: `Taxa de acerto baixa: ${winRate.toFixed(1)}% nos últimos ${recentLogs.length} sinais`
+                });
+            }
+
+            const expiredRate = (recentLogs.filter(l => l.outcome === 'EXPIRADO').length / recentLogs.length) * 100;
+            if (expiredRate > 50) {
+                alerts.push({
+                    type: 'warning',
+                    message: `${expiredRate.toFixed(1)}% dos sinais expiram sem resultado - ajuste os alvos`
+                });
+            }
+
+            const avgSlippage = recentLogs
+                .filter(l => l.prices.slippage !== null)
+                .reduce((sum, l) => sum + l.prices.slippage, 0) / recentLogs.length;
+            
+            if (avgSlippage > 50) {
+                alerts.push({
+                    type: 'warning',
+                    message: `Slippage médio alto: R$ ${avgSlippage.toFixed(2)}`
+                });
+            }
+        }
+
+        return alerts;
+    }
+
+    getPerformanceByHour() {
+        return this.performanceByHour;
+    }
+
+    getPerformanceByScore() {
+        return this.performanceByScore;
+    }
+
+    getIndicatorPerformance() {
+        return this.indicatorPerformance;
+    }
+
+    getRecentLogs(limit = 50) {
+        return this.auditLogs.slice(-limit).reverse();
+    }
+
+    exportToCSV() {
+        const headers = [
+            'ID', 'Gerado Em', 'Horário', 'Símbolo', 'Direção', 'Score',
+            'Preço Teórico', 'Preço Entrada', 'Slippage', 'Preço Saída',
+            'P&L', 'Resultado', 'Motivo', 'Fonte Dados'
+        ];
+
+        const rows = this.auditLogs.map(log => [
+            log.signalId,
+            new Date(log.generatedAt).toLocaleString('pt-BR'),
+            log.hourOfDay + 'h',
+            log.metadata.symbol,
+            log.metadata.direction,
+            log.scoreRange,
+            log.prices.theoretical.toFixed(2),
+            log.prices.actualEntry ? log.prices.actualEntry.toFixed(2) : 'N/A',
+            log.prices.slippage ? log.prices.slippage.toFixed(2) : 'N/A',
+            log.prices.actualExit ? log.prices.actualExit.toFixed(2) : 'N/A',
+            log.prices.finalPnL !== null ? log.prices.finalPnL.toFixed(2) : 'N/A',
+            log.outcome || 'PENDENTE',
+            log.reason || 'Em andamento',
+            log.metadata.dataSource
+        ]);
+
+        let csv = headers.join(',') + '\n';
+        rows.forEach(row => {
+            csv += row.join(',') + '\n';
+        });
+
+        return csv;
+    }
+
+    clearOldData(daysToKeep = 7) {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+        
+        this.auditLogs = this.auditLogs.filter(log => 
+            new Date(log.generatedAt) > cutoffDate
+        );
+        
+        this.saveToStorage();
+    }
+}
+
+
+    
     /* ========================================
        FUNÇÕES DE API (mantidas do código original)
        ======================================== */
@@ -1611,6 +1895,10 @@
             };
 
             this.memoryDB.saveSignal(signal);
+            // Log para auditoria
+if (window.auditSystemRef) {
+    window.auditSystemRef.logSignalGeneration(signal, currentPrice, { weights: this.weights });
+}
 
             return signal;
         }
@@ -1670,6 +1958,7 @@
         const alphaEngineRef = useRef(null);
         const memoryDBRef = useRef(null);
         const apiManagerRef = useRef(null);
+        const auditSystemRef = useRef(null);
         const orderExecutorRef = useRef(null);
         const verificationTimers = useRef(new Map());
 
@@ -1688,12 +1977,19 @@
                 alphaEngineRef.current = new AlphaEngine(memoryDBRef.current);
                 apiManagerRef.current = new APIConnectionManager();
                 orderExecutorRef.current = new OrderExecutionManager(apiManagerRef.current);
+                auditSystemRef.current = new AuditSystem();
                 
                 setMemoryDB(memoryDBRef.current);
                 setMarketData(marketDataRef.current);
                 setAlphaEngine(alphaEngineRef.current);
                 setApiManager(apiManagerRef.current);
                 setOrderExecutor(orderExecutorRef.current);
+
+                const [auditSystem, setAuditSystem] = useState(null);
+                setAuditSystem(auditSystemRef.current);
+
+
+                
             } catch (error) {
                 console.log('Erro na inicialização:', error);
             }
@@ -1869,6 +2165,17 @@
                         clearInterval(monitoringInterval);
                         clearTimeout(verificationTimerId);
                         verificationTimers.current.delete(signal.id);
+
+                        // Atualizar auditoria
+if (auditSystemRef.current) {
+    auditSystemRef.current.updateSignalOutcome(
+        signal.id,
+        result,
+        currentPrice,
+        pnl,
+        signal.executionDetails
+    );
+}
                         
                         // Fechar posição se foi executada automaticamente
                         if (orderExecutorRef.current && signal.executed) {
@@ -2707,6 +3014,255 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
             );
         }
 
+    function AuditView({ auditSystem, formatBRL }) {
+    const [activeTab, setActiveTab] = useState('logs');
+    const [logs, setLogs] = useState([]);
+    const [alerts, setAlerts] = useState([]);
+    const [perfByHour, setPerfByHour] = useState({});
+    const [perfByScore, setPerfByScore] = useState({});
+    const [indicatorPerf, setIndicatorPerf] = useState({});
+
+    useEffect(() => {
+        if (!auditSystem) return;
+        
+        const updateData = () => {
+            setLogs(auditSystem.getRecentLogs(50));
+            setAlerts(auditSystem.getHealthAlerts());
+            setPerfByHour(auditSystem.getPerformanceByHour());
+            setPerfByScore(auditSystem.getPerformanceByScore());
+            setIndicatorPerf(auditSystem.getIndicatorPerformance());
+        };
+
+        updateData();
+        const interval = setInterval(updateData, 5000);
+        return () => clearInterval(interval);
+    }, [auditSystem]);
+
+    const handleExport = () => {
+        if (!auditSystem) return;
+        
+        const csv = auditSystem.exportToCSV();
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `audit_${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
+    };
+
+    if (!auditSystem) {
+        return <div className="card"><h3>Carregando auditoria...</h3></div>;
+    }
+
+    return (
+        <div>
+            <div className="warning-box">
+                Sistema de Auditoria e Validação - Todos os sinais são registrados para análise
+            </div>
+
+            {alerts.length > 0 && (
+                <div className="card">
+                    <h3>Alertas de Integridade</h3>
+                    {alerts.map((alert, idx) => (
+                        <div key={idx} className={alert.type === 'error' ? 'error-box' : 'warning-box'} style={{ marginBottom: '10px' }}>
+                            {alert.type === 'error' ? '❌' : '⚠️'} {alert.message}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <div className="card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <h3>Dados de Auditoria</h3>
+                    <button className="btn btn-primary" onClick={handleExport}>
+                        📥 Exportar CSV
+                    </button>
+                </div>
+
+                <div className="mode-selector" style={{ marginBottom: '20px' }}>
+                    <div className={`mode-btn ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => setActiveTab('logs')}>
+                        📋 Logs Detalhados
+                    </div>
+                    <div className={`mode-btn ${activeTab === 'hour' ? 'active' : ''}`} onClick={() => setActiveTab('hour')}>
+                        ⏰ Por Horário
+                    </div>
+                    <div className={`mode-btn ${activeTab === 'score' ? 'active' : ''}`} onClick={() => setActiveTab('score')}>
+                        📊 Score vs Resultado
+                    </div>
+                    <div className={`mode-btn ${activeTab === 'indicators' ? 'active' : ''}`} onClick={() => setActiveTab('indicators')}>
+                        🎯 Por Indicador
+                    </div>
+                </div>
+
+                {activeTab === 'logs' && (
+                    <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
+                        {logs.length === 0 ? (
+                            <div style={{ textAlign: 'center', color: '#a0a0a0', padding: '40px' }}>
+                                Nenhum log ainda
+                            </div>
+                        ) : (
+                            logs.map((log, idx) => (
+                                <div key={idx} style={{
+                                    padding: '15px',
+                                    margin: '10px 0',
+                                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                                    borderRadius: '8px',
+                                    background: log.outcome === 'ACERTO' ? 'rgba(0, 255, 136, 0.05)' : 
+                                               log.outcome === 'ERRO' ? 'rgba(255, 71, 87, 0.05)' : 
+                                               'rgba(255, 255, 255, 0.02)'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                        <strong>{log.metadata.direction} {log.metadata.symbol}</strong>
+                                        <span style={{ fontSize: '12px', color: '#a0a0a0' }}>
+                                            {new Date(log.generatedAt).toLocaleString('pt-BR')}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: '13px', color: '#c0c0c0' }}>
+                                        <div>Score: {log.scoreRange} | Horário: {log.hourOfDay}h</div>
+                                        <div>Preço Teórico: {formatBRL(log.prices.theoretical)}</div>
+                                        {log.prices.actualEntry && (
+                                            <div>Preço Real: {formatBRL(log.prices.actualEntry)} | Slippage: {formatBRL(log.prices.slippage)}</div>
+                                        )}
+                                        {log.outcome && (
+                                            <div style={{ marginTop: '8px', color: log.outcome === 'ACERTO' ? '#00ff88' : log.outcome === 'ERRO' ? '#ff4757' : '#ffc107' }}>
+                                                Resultado: {log.outcome} | P&L: {formatBRL(log.prices.finalPnL)}
+                                                <div style={{ fontSize: '11px', marginTop: '3px' }}>{log.reason}</div>
+                                            </div>
+                                        )}
+                                        <div style={{ fontSize: '11px', marginTop: '5px' }}>
+                                            Indicadores: {Object.keys(log.indicators).join(', ')}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                )}
+
+                {activeTab === 'hour' && (
+                    <div>
+                        {Object.keys(perfByHour).length === 0 ? (
+                            <div style={{ textAlign: 'center', color: '#a0a0a0', padding: '40px' }}>
+                                Dados insuficientes
+                            </div>
+                        ) : (
+                            Object.entries(perfByHour).sort((a, b) => Number(a[0]) - Number(b[0])).map(([hour, stats]) => {
+                                const winRate = stats.total > 0 ? (stats.wins / stats.total) * 100 : 0;
+                                return (
+                                    <div key={hour} style={{
+                                        padding: '15px',
+                                        margin: '10px 0',
+                                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                                        borderRadius: '8px'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div>
+                                                <strong>{hour}:00h - {hour}:59h</strong>
+                                                <div style={{ fontSize: '13px', color: '#a0a0a0', marginTop: '5px' }}>
+                                                    Total: {stats.total} sinais | Vitórias: {stats.wins} | Derrotas: {stats.losses} | Expirados: {stats.expired}
+                                                </div>
+                                            </div>
+                                            <div style={{ textAlign: 'right' }}>
+                                                <div style={{ fontSize: '24px', color: winRate >= 50 ? '#00ff88' : '#ff4757', fontWeight: 'bold' }}>
+                                                    {winRate.toFixed(1)}%
+                                                </div>
+                                                <div style={{ fontSize: '14px', color: stats.totalPnL >= 0 ? '#00ff88' : '#ff4757' }}>
+                                                    {formatBRL(stats.totalPnL)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                )}
+
+                {activeTab === 'score' && (
+                    <div>
+                        {Object.keys(perfByScore).length === 0 ? (
+                            <div style={{ textAlign: 'center', color: '#a0a0a0', padding: '40px' }}>
+                                Dados insuficientes
+                            </div>
+                        ) : (
+                            Object.entries(perfByScore).sort((a, b) => b[0].localeCompare(a[0])).map(([range, stats]) => {
+                                const winRate = stats.total > 0 ? (stats.wins / stats.total) * 100 : 0;
+                                const expiredRate = stats.total > 0 ? (stats.expired / stats.total) * 100 : 0;
+                                return (
+                                    <div key={range} style={{
+                                        padding: '15px',
+                                        margin: '10px 0',
+                                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                                        borderRadius: '8px'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div>
+                                                <strong>Score: {range}%</strong>
+                                                <div style={{ fontSize: '13px', color: '#a0a0a0', marginTop: '5px' }}>
+                                                    Total: {stats.total} | Vitórias: {stats.wins} | Derrotas: {stats.losses} | Expirados: {stats.expired}
+                                                </div>
+                                            </div>
+                                            <div style={{ textAlign: 'right' }}>
+                                                <div style={{ fontSize: '20px', color: winRate >= 50 ? '#00ff88' : '#ff4757', fontWeight: 'bold' }}>
+                                                    {winRate.toFixed(1)}%
+                                                </div>
+                                                <div style={{ fontSize: '12px', color: '#ffc107' }}>
+                                                    {expiredRate.toFixed(1)}% expirados
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                        <div className="warning-box" style={{ marginTop: '20px' }}>
+                            Se scores altos (80-90%) têm taxa de acerto baixa, o sistema não está confiável
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'indicators' && (
+                    <div>
+                        {Object.keys(indicatorPerf).length === 0 ? (
+                            <div style={{ textAlign: 'center', color: '#a0a0a0', padding: '40px' }}>
+                                Dados insuficientes
+                            </div>
+                        ) : (
+                            Object.entries(indicatorPerf).map(([indicator, stats]) => {
+                                const winRate = stats.total > 0 ? (stats.wins / stats.total) * 100 : 0;
+                                return (
+                                    <div key={indicator} style={{
+                                        padding: '15px',
+                                        margin: '10px 0',
+                                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                                        borderRadius: '8px'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div>
+                                                <strong>{indicator.replace('_', ' ').toUpperCase()}</strong>
+                                                <div style={{ fontSize: '13px', color: '#a0a0a0', marginTop: '5px' }}>
+                                                    Total: {stats.total} | Vitórias: {stats.wins} | Derrotas: {stats.losses}
+                                                </div>
+                                            </div>
+                                            <div style={{ fontSize: '24px', color: winRate >= 50 ? '#00ff88' : '#ff4757', fontWeight: 'bold' }}>
+                                                {winRate.toFixed(1)}%
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+
+
+
+
+    
         function Performance({ alphaEngine, signals, memoryDB, formatBRL }) {
             const [stats, setStats] = useState(null);
 
@@ -3126,6 +3682,7 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
 </body>
 </html>
 </artifact>
+
 
 
 
