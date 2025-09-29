@@ -597,10 +597,10 @@
                 
                 /* SIMULAÇÃO: Armazenar em memória
                    PRODUÇÃO: Descomentar para usar localStorage */
-                // this.loadFromStorage();
+                 this.loadFromStorage();
             }
 
-            /* PRODUÇÃO: Carregar conexões salvas
+            /* PRODUÇÃO: Carregar conexões salvas */
             loadFromStorage() {
                 try {
                     const saved = localStorage.getItem('api_connections');
@@ -621,7 +621,7 @@
                     console.log('Erro ao salvar conexões:', error);
                 }
             }
-            */
+            
 
             addConnection(provider, apiKey, secretKey = null) {
                 this.connections.set(provider, {
@@ -630,7 +630,7 @@
                     status: 'disconnected',
                     lastTested: null
                 });
-                // this.saveToStorage(); // PRODUÇÃO: Descomentar
+                 this.saveToStorage(); // PRODUÇÃO: Descomentar
             }
 
             removeConnection(provider) {
@@ -638,7 +638,7 @@
                 if (this.activeProvider === provider) {
                     this.activeProvider = null;
                 }
-                // this.saveToStorage(); // PRODUÇÃO: Descomentar
+                 this.saveToStorage(); // PRODUÇÃO: Descomentar
             }
 
             setActive(provider) {
@@ -662,7 +662,7 @@
                 if (conn) {
                     conn.status = status;
                     conn.lastTested = new Date();
-                    // this.saveToStorage(); // PRODUÇÃO: Descomentar
+                     this.saveToStorage(); // PRODUÇÃO: Descomentar
                 }
             }
         }
@@ -2280,4 +2280,5 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
         }
     </script>
 </body>
+
 </html>
