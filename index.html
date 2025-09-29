@@ -574,11 +574,12 @@
                 description: 'Dados de criptomoedas em tempo real'
             },
             COINGECKO: {
-                name: 'CoinGecko',
-                icon: '🦎',
-                requiresSecret: false,
-                baseUrl: 'https://api.coingecko.com/api/v3',
-                description: 'Dados de cripto sem necessidade de chave'
+    name: 'CoinGecko',
+    icon: '🦎',
+    requiresSecret: false,
+    baseUrl: 'https://api.coingecko.com/api/v3',
+    description: 'Dados de cripto (requer chave Demo API gratuita)'
+},
             },
             POLYGON: {
                 name: 'Polygon.io',
@@ -703,11 +704,24 @@
                         return parseBinanceData(data);
 
                     case 'COINGECKO':
-                        // CoinGecko usa IDs diferentes (ex: bitcoin, ethereum)
-                        const coinId = symbol.toLowerCase().replace('USDT', '').replace('BTC', 'bitcoin');
-                        url = `${API_PROVIDERS.COINGECKO.baseUrl}/coins/${coinId}/market_chart?vs_currency=usd&days=7&interval=hourly`;
-                        response = await fetch(url);
-                        data = await response.json();
+    // CoinGecko usa IDs diferentes (ex: bitcoin, ethereum)
+    const coinId = symbol.toLowerCase().replace('USDT', '').replace('BTC', 'bitcoin');
+    
+    // Método 1: Usando Header (Recomendado pela CoinGecko)
+    if (apiKey) {
+        url = `${API_PROVIDERS.COINGECKO.baseUrl}/coins/${coinId}/market_chart?vs_currency=usd&days=7&interval=hourly`;
+        response = await fetch(url, {
+            headers: {
+                'x-cg-demo-api-key': apiKey
+            }
+        });
+    } else {
+        // Método 2: Usando Query String (alternativa)
+        url = `${API_PROVIDERS.COINGECKO.baseUrl}/coins/${coinId}/market_chart?vs_currency=usd&days=7&interval=hourly&x_cg_demo_api_key=${apiKey}`;
+        response = await fetch(url);
+    }
+    
+    data = await response.json();
                         
                         if (data.error) {
                             throw new Error(data.error);
@@ -2282,3 +2296,4 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
