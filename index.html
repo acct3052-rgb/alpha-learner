@@ -1349,7 +1349,7 @@
            ======================================== */
 
         function App() {
-            const [currentView, setCurrentView] = useState('dashboard');
+            const [connectionVersion, setConnectionVersion] = useState(0);
             const [mode, setMode] = useState('manual');
             const [isActive, setIsActive] = useState(false);
             const [signals, setSignals] = useState([]);
@@ -1673,16 +1673,16 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
                             <MLEngine alphaEngine={alphaEngine} memoryDB={memoryDB} />
                         )}
                         
-                        {currentView === 'connections' && (
-                            <ConnectionsView 
-                                apiManager={apiManager}
-                                showNotification={showNotification}
-                                onConnectionChange={() => {
-                                    // Forçar re-render quando conexão mudar
-                                    setApiManager({...apiManager});
-                                }}
-                            />
-                        )}
+                       {currentView === 'connections' && (
+   {currentView === 'connections' && (
+    <ConnectionsView 
+        apiManager={apiManager}
+        showNotification={showNotification}
+        onConnectionChange={() => {
+            setConnectionVersion(prev => prev + 1);
+        }}
+    />
+)}
                         
                         {currentView === 'settings' && (
                             <Settings 
@@ -2474,6 +2474,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
