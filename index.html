@@ -2022,16 +2022,16 @@
                     return;
                 }
 
-                const details = `
+           const details = `
 Sinal: ${signal.direction || 'N/A'} ${signal.symbol || 'N/A'}
 Score: ${signal.score || 0}%
 Preço: ${formatBRL(signal.price)}
-Stop Loss: ${formatBRL(signal.stopLoss)}
-Take Profit: ${formatBRL(signal.takeProfit)}
-Timeframe: ${signal.timeframe || 'N/A'}
+Stop: ${formatBRL(signal.stopLoss)}
+Alvo: ${formatBRL(signal.takeProfit)}
+TF: ${signal.timeframe || 'N/A'}
 Status: ${signal.status || 'PENDENTE'}
 Fonte: ${signal.dataSource || 'N/A'}
-${signal.divergence ? Divergência: ${signal.divergence.type} : ''}
+${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
 `.trim();
                 if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
                     navigator.clipboard.writeText(details)
@@ -3126,3 +3126,4 @@ ${signal.divergence ? Divergência: ${signal.divergence.type} : ''}
 </body>
 </html>
 </artifact>
+
