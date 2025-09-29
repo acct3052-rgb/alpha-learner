@@ -1546,83 +1546,132 @@ useEffect(() => {
                 return () => clearInterval(countdownInterval);
             }, [isActive]);
 
-            const scheduleSignalVerification = (signal) => {
+         const scheduleSignalVerification = (signal) => {
     try {
         const now = new Date().getTime();
         const entryTime = new Date(signal.entryTime).getTime();
         const timeframeMs = signal.timeframe === 'M5' ? 5 * 60 * 1000 : 15 * 60 * 1000;
         
-        // Calcular quando fazer a verificação:
-        // Tempo até entrada + timeframe do sinal
         const timeUntilEntry = Math.max(0, entryTime - now);
         const verificationDelay = timeUntilEntry + timeframeMs;
         
         console.log(`⏰ Sinal ${signal.direction} agendado:`);
         console.log(`   Entrada em: ${new Date(entryTime).toLocaleTimeString()}`);
-        console.log(`   Verificação em: ${new Date(now + verificationDelay).toLocaleTimeString()}`);
-        console.log(`   Aguardar: ${Math.round(verificationDelay / 1000)}s (${Math.round(timeUntilEntry / 1000)}s até entrada + ${timeframeMs / 1000}s de timeframe)`);
+        console.log(`   Verificação final em: ${new Date(now + verificationDelay).toLocaleTimeString()}`);
         
-        const timerId = setTimeout(() => {
-            console.log(`🔍 Verificando resultado do sinal ${signal.direction}...`);
+        // NOVO: Monitoramento contínuo a cada 5 segundos durante o timeframe
+        const monitoringInterval = setInterval(() => {
+            const currentPrice = marketDataRef.current?.getLatestPrice()?.close;
+            if (!currentPrice) return;
+            
+            let shouldStop = false;
+            let result = null;
+            let pnl = 0;
+            
+            // Verificar se stop loss ou take profit foram atingidos
+            if (signal.direction === 'BUY') {
+                if (currentPrice >= signal.takeProfit) {
+                    result = 'ACERTO';
+                    pnl = riskAmount * 2;
+                    shouldStop = true;
+                } else if (currentPrice <= signal.stopLoss) {
+                    result = 'ERRO';
+                    pnl = -riskAmount;
+                    shouldStop = true;
+                }
+            } else { // SELL
+                if (currentPrice <= signal.takeProfit) {
+                    result = 'ACERTO';
+                    pnl = riskAmount * 2;
+                    shouldStop = true;
+                } else if (currentPrice >= signal.stopLoss) {
+                    result = 'ERRO';
+                    pnl = -riskAmount;
+                    shouldStop = true;
+                }
+            }
+            
+            if (shouldStop) {
+                console.log(`🎯 ${result}! Preço atingiu ${result === 'ACERTO' ? 'take profit' : 'stop loss'}`);
+                clearInterval(monitoringInterval);
+                clearTimeout(verificationTimerId);
+                verificationTimers.current.delete(signal.id);
+                
+                // Processar resultado imediatamente
+                verifySignalOutcome(signal, result, pnl, currentPrice);
+            }
+        }, 5000); // Verificar a cada 5 segundos
+        
+        // Timer final (se não atingir stop/profit antes)
+        const verificationTimerId = setTimeout(() => {
+            clearInterval(monitoringInterval);
+            console.log(`🔍 Verificação final do sinal ${signal.direction}...`);
             verifySignalOutcome(signal);
         }, verificationDelay);
 
-        verificationTimers.current.set(signal.id, timerId);
+        verificationTimers.current.set(signal.id, {
+            timer: verificationTimerId,
+            interval: monitoringInterval
+        });
     } catch (error) {
         console.error('Erro ao agendar verificação:', error);
     }
 };
 
-            const verifySignalOutcome = async (signal) => {
-                try {
-                    if (!marketData) return;
+           const verifySignalOutcome = async (signal, forcedResult = null, forcedPnl = null, forcedPrice = null) => {
+    try {
+        if (!marketData) return;
 
-                    const currentPrice = marketData.getLatestPrice().close;
-                    
-                    let result = 'EXPIRADO';
-                    let pnl = 0;
-
-                    if (signal.direction === 'BUY') {
-                        if (currentPrice >= signal.takeProfit) {
-                            result = 'ACERTO';
-                            pnl = riskAmount * 2;
-                        } else if (currentPrice <= signal.stopLoss) {
-                            result = 'ERRO';
-                            pnl = -riskAmount;
-                        }
-                    } else {
-                        if (currentPrice <= signal.takeProfit) {
-                            result = 'ACERTO';
-                            pnl = riskAmount * 2;
-                        } else if (currentPrice >= signal.stopLoss) {
-                            result = 'ERRO';
-                            pnl = -riskAmount;
-                        }
-                    }
-
-                    signal.status = result;
-                    signal.pnl = pnl;
-                    signal.finalPrice = currentPrice;
-
-                    if (alphaEngine && result !== 'EXPIRADO') {
-                        await alphaEngine.learnFromTrade(signal, result);
-                    }
-
-                    setSignals(prev => prev.map(s => 
-                        s.id === signal.id ? { ...s, status: result, pnl, finalPrice: currentPrice } : s
-                    ));
-
-                    showNotification(
-                        result === 'ACERTO' 
-                            ? `✅ Sinal confirmado: +${formatBRL(pnl)}`
-                            : `❌ Stop atingido: ${formatBRL(pnl)}`
-                    );
-
-                    verificationTimers.current.delete(signal.id);
-                } catch (error) {
-                    console.log('Erro na verificação:', error);
+        let result = forcedResult || 'EXPIRADO';
+        let pnl = forcedPnl || 0;
+        let currentPrice = forcedPrice || marketData.getLatestPrice().close;
+        
+        // Se não foi forçado (atingiu stop/profit), verificar posição final
+        if (!forcedResult) {
+            if (signal.direction === 'BUY') {
+                if (currentPrice >= signal.takeProfit) {
+                    result = 'ACERTO';
+                    pnl = riskAmount * 2;
+                } else if (currentPrice <= signal.stopLoss) {
+                    result = 'ERRO';
+                    pnl = -riskAmount;
                 }
-            };
+            } else {
+                if (currentPrice <= signal.takeProfit) {
+                    result = 'ACERTO';
+                    pnl = riskAmount * 2;
+                } else if (currentPrice >= signal.stopLoss) {
+                    result = 'ERRO';
+                    pnl = -riskAmount;
+                }
+            }
+        }
+
+        signal.status = result;
+        signal.pnl = pnl;
+        signal.finalPrice = currentPrice;
+
+        if (alphaEngine && result !== 'EXPIRADO') {
+            await alphaEngine.learnFromTrade(signal, result);
+        }
+
+        setSignals(prev => prev.map(s => 
+            s.id === signal.id ? { ...s, status: result, pnl, finalPrice: currentPrice } : s
+        ));
+
+        showNotification(
+            result === 'ACERTO' 
+                ? `✅ Sinal confirmado: +${formatBRL(pnl)}`
+                : result === 'ERRO'
+                ? `❌ Stop atingido: ${formatBRL(pnl)}`
+                : `⏱️ Sinal expirado sem atingir alvos`
+        );
+
+        verificationTimers.current.delete(signal.id);
+    } catch (error) {
+        console.log('Erro na verificação:', error);
+    }
+};
 
             const playAlert = () => {
                 try {
@@ -1655,19 +1704,21 @@ useEffect(() => {
             };
 
             const dismissSignal = (signalId) => {
-                try {
-                    if (!signalId) return;
-                    
-                    if (verificationTimers.current.has(signalId)) {
-                        clearTimeout(verificationTimers.current.get(signalId));
-                        verificationTimers.current.delete(signalId);
-                    }
-                    
-                    setSignals(prev => prev.filter(s => s && s.id !== signalId));
-                } catch (error) {
-                    console.log('Erro ao dispensar sinal:', error);
-                }
-            };
+    try {
+        if (!signalId) return;
+        
+        const timerData = verificationTimers.current.get(signalId);
+        if (timerData) {
+            if (timerData.timer) clearTimeout(timerData.timer);
+            if (timerData.interval) clearInterval(timerData.interval);
+            verificationTimers.current.delete(signalId);
+        }
+        
+        setSignals(prev => prev.filter(s => s && s.id !== signalId));
+    } catch (error) {
+        console.log('Erro ao dispensar sinal:', error);
+    }
+};
 
             const copySignalDetails = (signal) => {
                 try {
@@ -1944,11 +1995,25 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
             }
             
             const formatEntryTime = () => {
-                if (signal.status !== 'PENDENTE') return `Status: ${signal.status}`;
-                if (timeToEntry <= 0) return "⏰ ENTRAR AGORA";
-                if (timeToEntry < 60) return `⏱️ ${seconds}s para entrada`;
-                return `⏱️ ${minutes}m ${seconds}s para entrada`;
-            };
+    if (signal.status !== 'PENDENTE') return `Status: ${signal.status}`;
+    if (timeToEntry <= 0) return "⏰ ENTRAR AGORA";
+    if (timeToEntry < 60) return `⏱️ ${seconds}s para entrada`;
+    return `⏱️ ${minutes}m ${seconds}s para entrada`;
+};
+
+// ADICIONE ESTA NOVA FUNÇÃO LOGO APÓS formatEntryTime:
+const getExactEntryTime = () => {
+    try {
+        const entryDate = new Date(signal.entryTime);
+        return entryDate.toLocaleTimeString('pt-BR', { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit' 
+        });
+    } catch {
+        return 'N/A';
+    }
+};
             
             return (
                 <div className={`signal-card ${timeToEntry <= 30 && timeToEntry > 0 ? 'urgent' : ''} ${getStatusClass()}`}>
@@ -2538,6 +2603,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
