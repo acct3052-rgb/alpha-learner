@@ -591,81 +591,82 @@
 
         /* Classe para gerenciar conexões de API */
         class APIConnectionManager {
-            constructor() {
-                this.connections = new Map();
-                this.activeProvider = null;
-                
-                /* SIMULAÇÃO: Armazenar em memória
-                   PRODUÇÃO: Descomentar para usar localStorage */
-                 this.loadFromStorage();
-            }
+    constructor() {
+        this.connections = new Map();
+        this.activeProvider = null;
+        this.loadFromStorage();
+    }
 
-            /* PRODUÇÃO: Carregar conexões salvas */
-            loadFromStorage() {
-                try {
-                    const saved = localStorage.getItem('api_connections');
-                    if (saved) {
-                        const data = JSON.parse(saved);
-                        this.connections = new Map(Object.entries(data));
-                    }
-                } catch (error) {
-                    console.log('Erro ao carregar conexões:', error);
-                }
+    loadFromStorage() {
+        try {
+            const saved = localStorage.getItem('api_connections');
+            if (saved) {
+                const data = JSON.parse(saved);
+                // Suporta formato novo e antigo
+                this.connections = new Map(Object.entries(data.connections || data));
+                this.activeProvider = data.activeProvider || null;
             }
-
-            saveToStorage() {
-                try {
-                    const data = Object.fromEntries(this.connections);
-                    localStorage.setItem('api_connections', JSON.stringify(data));
-                } catch (error) {
-                    console.log('Erro ao salvar conexões:', error);
-                }
-            }
-            
-
-            addConnection(provider, apiKey, secretKey = null) {
-                this.connections.set(provider, {
-                    apiKey,
-                    secretKey,
-                    status: 'disconnected',
-                    lastTested: null
-                });
-                 this.saveToStorage(); // PRODUÇÃO: Descomentar
-            }
-
-            removeConnection(provider) {
-                this.connections.delete(provider);
-                if (this.activeProvider === provider) {
-                    this.activeProvider = null;
-                }
-                 this.saveToStorage(); // PRODUÇÃO: Descomentar
-            }
-
-            setActive(provider) {
-                if (this.connections.has(provider)) {
-                    this.activeProvider = provider;
-                    return true;
-                }
-                return false;
-            }
-
-            getActiveConnection() {
-                if (!this.activeProvider) return null;
-                return {
-                    provider: this.activeProvider,
-                    ...this.connections.get(this.activeProvider)
-                };
-            }
-
-            updateStatus(provider, status) {
-                const conn = this.connections.get(provider);
-                if (conn) {
-                    conn.status = status;
-                    conn.lastTested = new Date();
-                     this.saveToStorage(); // PRODUÇÃO: Descomentar
-                }
-            }
+        } catch (error) {
+            console.log('Erro ao carregar conexões:', error);
         }
+    }
+
+    saveToStorage() {
+        try {
+            const data = {
+                connections: Object.fromEntries(this.connections),
+                activeProvider: this.activeProvider
+            };
+            localStorage.setItem('api_connections', JSON.stringify(data));
+        } catch (error) {
+            console.log('Erro ao salvar conexões:', error);
+        }
+    }
+
+    addConnection(provider, apiKey, secretKey = null) {
+        this.connections.set(provider, {
+            apiKey,
+            secretKey,
+            status: 'disconnected',
+            lastTested: null
+        });
+        this.saveToStorage();
+    }
+
+    removeConnection(provider) {
+        this.connections.delete(provider);
+        if (this.activeProvider === provider) {
+            this.activeProvider = null;
+        }
+        this.saveToStorage();
+    }
+
+    setActive(provider) {
+        if (this.connections.has(provider)) {
+            this.activeProvider = provider;
+            this.saveToStorage(); // ← ADICIONE ESTA LINHA
+            return true;
+        }
+        return false;
+    }
+
+    getActiveConnection() {
+        if (!this.activeProvider) return null;
+        return {
+            provider: this.activeProvider,
+            ...this.connections.get(this.activeProvider)
+        };
+    }
+
+    updateStatus(provider, status) {
+        const conn = this.connections.get(provider);
+        if (conn) {
+            conn.status = status;
+            conn.lastTested = new Date();
+            this.saveToStorage();
+        }
+    }
+}
 
         /* Função para buscar dados reais de APIs */
         async function fetchRealMarketData(provider, apiKey, symbol, timeframe, secretKey = null) {
@@ -924,39 +925,31 @@
            CLASSES EXISTENTES (com modificações)
            ======================================== */
 
-        class MemoryDB {
+      class MemoryDB {
     constructor() {
         this.signals_history = [];
         this.ml_weights_evolution = [];
         this.config_snapshots = [];
-        this.loadFromStorage(); // Adicionar
+        this.loadFromStorage();
     }
 
-    // Na classe APIConnectionManager (linha ~602)
-saveToStorage() {
-    try {
-        const data = {
-            connections: Object.fromEntries(this.connections),
-            activeProvider: this.activeProvider // ← ADICIONE ESTA LINHA
-        };
-        localStorage.setItem('api_connections', JSON.stringify(data));
-    } catch (error) {
-        console.log('Erro ao salvar conexões:', error);
-    }
-}
-
-loadFromStorage() {
-    try {
-        const saved = localStorage.getItem('api_connections');
-        if (saved) {
-            const data = JSON.parse(saved);
-            this.connections = new Map(Object.entries(data.connections || data)); // Suporta formato antigo
-            this.activeProvider = data.activeProvider || null; // ← ADICIONE ESTA LINHA
+    loadFromStorage() {
+        try {
+            const saved = localStorage.getItem('alpha_learner_data');
+            if (saved) {
+                const data = JSON.parse(saved);
+                this.signals_history = data.signals_history || [];
+                this.ml_weights_evolution = data.ml_weights_evolution || [];
+                this.config_snapshots = data.config_snapshots || [];
+                console.log('📦 Dados carregados:', {
+                    sinais: this.signals_history.length,
+                    snapshots: this.ml_weights_evolution.length
+                });
+            }
+        } catch (error) {
+            console.error('Erro ao carregar dados:', error);
         }
-    } catch (error) {
-        console.log('Erro ao carregar conexões:', error);
     }
-}
 
     saveToStorage() {
         try {
@@ -976,7 +969,7 @@ loadFromStorage() {
             ...signal,
             savedAt: new Date().toISOString()
         });
-        this.saveToStorage(); // Adicionar
+        this.saveToStorage();
     }
 
     async getAllSignals() {
@@ -990,7 +983,7 @@ loadFromStorage() {
             performance: { ...performance }
         };
         this.ml_weights_evolution.push(snapshot);
-        this.saveToStorage(); // Adicionar
+        this.saveToStorage();
     }
 
     async getWeightsHistory() {
@@ -2545,6 +2538,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
