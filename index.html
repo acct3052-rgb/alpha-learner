@@ -704,12 +704,7 @@
                         return parseBinanceData(data);
 
                     case 'COINGECKO':
-    // Verificar se há API key (obrigatória)
-    if (!apiKey || apiKey.trim() === '') {
-        throw new Error('CoinGecko requer uma API Key. Obtenha gratuitamente em coingecko.com');
-    }
-    
-    // Mapeamento de símbolos para IDs da CoinGecko
+    // Mapeamento de símbolos
     const symbolMap = {
         'BTC': 'bitcoin',
         'BTCUSDT': 'bitcoin',
@@ -726,44 +721,79 @@
         'DOT': 'polkadot',
         'DOTUSDT': 'polkadot',
         'DOGE': 'dogecoin',
-        'DOGEUSDT': 'dogecoin'
+        'DOGEUSDT': 'dogecoin',
+        'MATIC': 'matic-network',
+        'MATICUSDT': 'matic-network',
+        'AVAX': 'avalanche-2',
+        'AVAXUSDT': 'avalanche-2'
     };
     
     const coinId = symbolMap[symbol.toUpperCase()] || 'bitcoin';
     
-    // Usar o endpoint correto com a chave no header
-    url = `${API_PROVIDERS.COINGECKO.baseUrl}/coins/${coinId}/market_chart?vs_currency=usd&days=7&interval=hourly`;
+    // Tentar endpoint público primeiro (sem chave)
+    url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=1`;
     
-    response = await fetch(url, {
-        method: 'GET',
-        headers: {
-            'accept': 'application/json',
-            'x-cg-demo-api-key': apiKey.trim()
-        }
-    });
+    // Estratégia de múltiplas tentativas
+    let lastError = null;
     
-    if (!response.ok) {
-        if (response.status === 401) {
-            throw new Error('API Key inválida ou expirada. Verifique sua chave em coingecko.com');
+    // Tentativa 1: Sem autenticação (pode funcionar para alguns endpoints)
+    try {
+        response = await fetch(url);
+        if (response.ok) {
+            data = await response.json();
+            if (data.prices && data.prices.length > 0) {
+                return parseCoinGeckoData(data);
+            }
         }
-        if (response.status === 429) {
-            throw new Error('Limite de requisições atingido. Aguarde alguns minutos.');
-        }
-        throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
+    } catch (e) {
+        lastError = e;
     }
     
-    data = await response.json();
-    
-    if (data.error || data.status?.error_message) {
-        throw new Error(data.error || data.status.error_message);
+    // Tentativa 2: Com API key (se fornecida)
+    if (apiKey && apiKey.trim()) {
+        const key = apiKey.trim();
+        
+        // Tentar com x-cg-demo-api-key (plano Demo)
+        try {
+            response = await fetch(url, {
+                headers: {
+                    'accept': 'application/json',
+                    'x-cg-demo-api-key': key
+                }
+            });
+            
+            if (response.ok) {
+                data = await response.json();
+                if (data.prices && data.prices.length > 0) {
+                    return parseCoinGeckoData(data);
+                }
+            }
+        } catch (e) {
+            lastError = e;
+        }
+        
+        // Tentar com x-cg-pro-api-key (plano Pro)
+        try {
+            response = await fetch(url, {
+                headers: {
+                    'accept': 'application/json',
+                    'x-cg-pro-api-key': key
+                }
+            });
+            
+            if (response.ok) {
+                data = await response.json();
+                if (data.prices && data.prices.length > 0) {
+                    return parseCoinGeckoData(data);
+                }
+            }
+        } catch (e) {
+            lastError = e;
+        }
     }
     
-    if (!data.prices || data.prices.length === 0) {
-        throw new Error('Nenhum dado de preço retornado pela API');
-    }
-
-    return parseCoinGeckoData(data);
-
+    // Se chegou aqui, nenhuma tentativa funcionou
+    throw new Error('CoinGecko: Verifique se sua API key é válida e está ativa. Acesse coingecko.com/account/api para verificar.');
                     case 'POLYGON':
                         // Exemplo: Buscar agregados
                         const multiplier = timeframe === 'M5' ? 5 : 15;
@@ -2337,6 +2367,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
