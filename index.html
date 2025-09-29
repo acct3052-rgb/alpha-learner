@@ -703,30 +703,30 @@
                         return parseBinanceData(data);
 
                     case 'COINGECKO':
-                        // CoinGecko usa IDs diferentes (ex: bitcoin, ethereum)
-                        const coinId = symbol.toLowerCase().replace('USDT', '').replace('BTC', 'bitcoin');
-    
-                        // Método 1: Usando Header (Recomendado pela CoinGecko)
-                        if (apiKey) {
-                        url = `${API_PROVIDERS.COINGECKO.baseUrl}/coins/${coinId}/market_chart?vs_currency=usd&days=7&interval=hourly`;
-                        response = await fetch(url, {
-                         headers: {
-                        'x-cg-demo-api-key': apiKey
-                        }
-                   });
-                   } else {
-                       // Método 2: Usando Query String (alternativa)
-                      url = `${API_PROVIDERS.COINGECKO.baseUrl}/coins/${coinId}/market_chart?vs_currency=usd&days=7&interval=hourly&x_cg_demo_api_key=${apiKey}`;
-                      response = await fetch(url);
-                      }
-    
-                      data = await response.json();
-                        
-                        if (data.error) {
-                            throw new Error(data.error);
-                        }
+    // CoinGecko usa IDs diferentes (ex: bitcoin, ethereum)
+    const coinId = symbol.toLowerCase().replace('USDT', '').replace('BTC', 'bitcoin');
 
-                        return parseCoinGeckoData(data);
+    // Sempre usar header (método recomendado pela CoinGecko)
+    url = `${API_PROVIDERS.COINGECKO.baseUrl}/coins/${coinId}/market_chart?vs_currency=usd&days=7&interval=hourly`;
+    
+    if (apiKey) {
+        response = await fetch(url, {
+            headers: {
+                'x-cg-demo-api-key': apiKey
+            }
+        });
+    } else {
+        // Sem chave, tenta acesso público (limitado)
+        response = await fetch(url);
+    }
+    
+    data = await response.json();
+    
+    if (data.error) {
+        throw new Error(data.error);
+    }
+
+    return parseCoinGeckoData(data);
 
                     case 'POLYGON':
                         // Exemplo: Buscar agregados
@@ -2295,5 +2295,6 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
