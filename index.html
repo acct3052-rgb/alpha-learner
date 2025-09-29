@@ -678,16 +678,17 @@
 
                 switch(provider) {
                     case 'ALPHA_VANTAGE':
-                        // Exemplo: Buscar dados intraday
-                        url = `${API_PROVIDERS.ALPHA_VANTAGE.baseUrl}?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=${timeframe}&apikey=${apiKey}`;
-                        response = await fetch(url);
-                        data = await response.json();
-                        
-                        if (data['Error Message'] || data['Note']) {
-                            throw new Error(data['Error Message'] || 'Limite de API atingido');
-                        }
+    // Converter timeframe: M5 -> 5min, M15 -> 15min
+    const avInterval = timeframe === 'M5' ? '5min' : '15min';
+    url = `${API_PROVIDERS.ALPHA_VANTAGE.baseUrl}?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=${avInterval}&apikey=${apiKey}`;
+    response = await fetch(url);
+    data = await response.json();
+    
+    if (data['Error Message'] || data['Note']) {
+        throw new Error(data['Error Message'] || 'Limite de API atingido');
+    }
 
-                        return parseAlphaVantageData(data, timeframe);
+    return parseAlphaVantageData(data, avInterval);
 
                     case 'BINANCE':
                         // Exemplo: Buscar klines (candlesticks)
@@ -753,28 +754,29 @@
         }
 
         /* Funções de parsing para cada API */
-        function parseAlphaVantageData(data, timeframe) {
-            const timeSeriesKey = `Time Series (${timeframe})`;
-            const timeSeries = data[timeSeriesKey];
-            
-            if (!timeSeries) {
-                throw new Error('Dados não encontrados na resposta');
-            }
+       function parseAlphaVantageData(data, interval) {
+    // interval já está no formato correto: "5min" ou "15min"
+    const timeSeriesKey = `Time Series (${interval})`;
+    const timeSeries = data[timeSeriesKey];
+    
+    if (!timeSeries) {
+        throw new Error('Dados não encontrados na resposta');
+    }
 
-            const candles = [];
-            for (const [timestamp, values] of Object.entries(timeSeries)) {
-                candles.push({
-                    timestamp: new Date(timestamp).getTime(),
-                    open: parseFloat(values['1. open']),
-                    high: parseFloat(values['2. high']),
-                    low: parseFloat(values['3. low']),
-                    close: parseFloat(values['4. close']),
-                    volume: parseFloat(values['5. volume'])
-                });
-            }
+    const candles = [];
+    for (const [timestamp, values] of Object.entries(timeSeries)) {
+        candles.push({
+            timestamp: new Date(timestamp).getTime(),
+            open: parseFloat(values['1. open']),
+            high: parseFloat(values['2. high']),
+            low: parseFloat(values['3. low']),
+            close: parseFloat(values['4. close']),
+            volume: parseFloat(values['5. volume'])
+        });
+    }
 
-            return candles.reverse().slice(-200); // Últimas 200 velas
-        }
+    return candles.reverse().slice(-200);
+}
 
         function parseBinanceData(data) {
             return data.map(candle => ({
@@ -2295,6 +2297,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
