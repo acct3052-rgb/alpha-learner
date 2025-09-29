@@ -2132,198 +2132,223 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 
         /* NOVO COMPONENTE: Tela de Conexões */
         function ConnectionsView({ apiManager, showNotification, onConnectionChange }) {
-            const [selectedProvider, setSelectedProvider] = useState('BINANCE');
-            const [apiKey, setApiKey] = useState('');
-            const [secretKey, setSecretKey] = useState('');
-            const [testing, setTesting] = useState(false);
-            const [testResult, setTestResult] = useState(null);
+    const [selectedProvider, setSelectedProvider] = useState('BINANCE');
+    const [apiKey, setApiKey] = useState('');
+    const [secretKey, setSecretKey] = useState('');
+    const [testing, setTesting] = useState(false);
+    const [testResult, setTestResult] = useState(null);
 
-            const handleTest = async () => {
-                if (!apiKey.trim()) {
-                    showNotification('Por favor, insira a API Key');
-                    return;
+    // CORREÇÃO: Verificar se apiManager existe
+    if (!apiManager) {
+        return (
+            <div className="card">
+                <h3>⏳ Carregando...</h3>
+                <p>Inicializando gerenciador de APIs...</p>
+            </div>
+        );
+    }
+
+    const handleTest = async () => {
+        if (!apiKey.trim()) {
+            showNotification('Por favor, insira a API Key');
+            return;
+        }
+
+        const provider = API_PROVIDERS[selectedProvider];
+        if (provider.requiresSecret && !secretKey.trim()) {
+            showNotification('Este provedor requer Secret Key');
+            return;
+        }
+
+        setTesting(true);
+        setTestResult(null);
+
+        try {
+            const result = await testAPIConnection(selectedProvider, apiKey, secretKey || null);
+            setTestResult(result);
+            
+            if (result.success) {
+                // CORREÇÃO: Verificar se métodos existem antes de chamar
+                if (apiManager && typeof apiManager.addConnection === 'function') {
+                    apiManager.addConnection(selectedProvider, apiKey, secretKey || null);
+                    apiManager.updateStatus(selectedProvider, 'connected');
+                    apiManager.setActive(selectedProvider);
+                    showNotification('✅ Conexão estabelecida com sucesso!');
+                    if (onConnectionChange) onConnectionChange();
+                } else {
+                    console.error('apiManager.addConnection não está disponível');
+                    showNotification('Erro: Gerenciador de API não inicializado corretamente');
                 }
-
-                const provider = API_PROVIDERS[selectedProvider];
-                if (provider.requiresSecret && !secretKey.trim()) {
-                    showNotification('Este provedor requer Secret Key');
-                    return;
-                }
-
-                setTesting(true);
-                setTestResult(null);
-
-                try {
-                    const result = await testAPIConnection(selectedProvider, apiKey, secretKey || null);
-                    setTestResult(result);
-                    
-                    if (result.success) {
-                        apiManager.addConnection(selectedProvider, apiKey, secretKey || null);
-                        apiManager.updateStatus(selectedProvider, 'connected');
-                        apiManager.setActive(selectedProvider);
-                        showNotification('✅ Conexão estabelecida com sucesso!');
-                        onConnectionChange();
-                    } else {
-                        showNotification(`❌ ${result.message}`);
-                    }
-                } catch (error) {
-                    setTestResult({ 
-                        success: false, 
-                        message: `Erro ao testar: ${error.message}` 
-                    });
-                } finally {
-                    setTesting(false);
-                }
-            };
-
-            const handleDisconnect = (provider) => {
-                apiManager.removeConnection(provider);
-                showNotification('Conexão removida');
-                onConnectionChange();
-                
-                if (provider === selectedProvider) {
-                    setApiKey('');
-                    setSecretKey('');
-                    setTestResult(null);
-                }
-            };
-
-            const connectedProviders = [];
-            apiManager?.connections?.forEach((conn, provider) => {
-                if (conn.status === 'connected') {
-                    connectedProviders.push(provider);
-                }
+            } else {
+                showNotification(`❌ ${result.message}`);
+            }
+        } catch (error) {
+            console.error('Erro ao testar conexão:', error);
+            setTestResult({ 
+                success: false, 
+                message: `Erro ao testar: ${error.message}` 
             });
+        } finally {
+            setTesting(false);
+        }
+    };
 
-            return (
-                <div>
-                    <div className="warning-box">
-                        ⚠️ <strong>Aviso de Segurança:</strong> As chaves de API são mantidas em memória apenas durante esta sessão. 
-                        Em produção, nunca armazene chaves sensíveis no navegador sem criptografia adequada.
+    const handleDisconnect = (provider) => {
+        if (!apiManager || typeof apiManager.removeConnection !== 'function') {
+            showNotification('Erro: Gerenciador de API não disponível');
+            return;
+        }
+
+        apiManager.removeConnection(provider);
+        showNotification('Conexão removida');
+        if (onConnectionChange) onConnectionChange();
+        
+        if (provider === selectedProvider) {
+            setApiKey('');
+            setSecretKey('');
+            setTestResult(null);
+        }
+    };
+
+    const connectedProviders = [];
+    if (apiManager && apiManager.connections) {
+        apiManager.connections.forEach((conn, provider) => {
+            if (conn.status === 'connected') {
+                connectedProviders.push(provider);
+            }
+        });
+    }
+
+    return (
+        <div>
+            <div className="warning-box">
+                ⚠️ <strong>Aviso de Segurança:</strong> As chaves de API são mantidas em memória apenas durante esta sessão. 
+                Em produção, nunca armazene chaves sensíveis no navegador sem criptografia adequada.
+            </div>
+
+            <div className="card">
+                <h3>🔗 Configurar Nova Conexão</h3>
+                
+                <div className="form-group">
+                    <label className="form-label">Provedor de Dados</label>
+                    <select 
+                        className="form-select"
+                        value={selectedProvider}
+                        onChange={(e) => {
+                            setSelectedProvider(e.target.value);
+                            setTestResult(null);
+                        }}
+                    >
+                        {Object.entries(API_PROVIDERS).map(([key, provider]) => (
+                            <option key={key} value={key}>
+                                {provider.icon} {provider.name}
+                            </option>
+                        ))}
+                    </select>
+                    <small style={{ color: '#a0a0a0', fontSize: '12px', marginTop: '5px', display: 'block' }}>
+                        {API_PROVIDERS[selectedProvider].description}
+                    </small>
+                </div>
+
+                <div className="form-group">
+                    <label className="form-label">API Key</label>
+                    <input 
+                        type="password"
+                        className="form-input"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        placeholder="Insira sua chave de API"
+                    />
+                </div>
+
+                {API_PROVIDERS[selectedProvider].requiresSecret && (
+                    <div className="form-group">
+                        <label className="form-label">Secret Key</label>
+                        <input 
+                            type="password"
+                            className="form-input"
+                            value={secretKey}
+                            onChange={(e) => setSecretKey(e.target.value)}
+                            placeholder="Insira sua chave secreta"
+                        />
                     </div>
+                )}
 
-                    <div className="card">
-                        <h3>🔗 Configurar Nova Conexão</h3>
-                        
-                        <div className="form-group">
-                            <label className="form-label">Provedor de Dados</label>
-                            <select 
-                                className="form-select"
-                                value={selectedProvider}
-                                onChange={(e) => {
-                                    setSelectedProvider(e.target.value);
-                                    setTestResult(null);
-                                }}
-                            >
-                                {Object.entries(API_PROVIDERS).map(([key, provider]) => (
-                                    <option key={key} value={key}>
-                                        {provider.icon} {provider.name}
-                                    </option>
-                                ))}
-                            </select>
-                            <small style={{ color: '#a0a0a0', fontSize: '12px', marginTop: '5px', display: 'block' }}>
-                                {API_PROVIDERS[selectedProvider].description}
-                            </small>
-                        </div>
+                <button 
+                    className="btn btn-primary" 
+                    onClick={handleTest}
+                    disabled={testing}
+                    style={{ width: '100%' }}
+                >
+                    {testing ? '🔄 Testando Conexão...' : '🔗 Salvar e Testar Conexão'}
+                </button>
 
-                        <div className="form-group">
-                            <label className="form-label">API Key</label>
-                            <input 
-                                type="password"
-                                className="form-input"
-                                value={apiKey}
-                                onChange={(e) => setApiKey(e.target.value)}
-                                placeholder="Insira sua chave de API"
-                            />
-                        </div>
-
-                        {API_PROVIDERS[selectedProvider].requiresSecret && (
-                            <div className="form-group">
-                                <label className="form-label">Secret Key</label>
-                                <input 
-                                    type="password"
-                                    className="form-input"
-                                    value={secretKey}
-                                    onChange={(e) => setSecretKey(e.target.value)}
-                                    placeholder="Insira sua chave secreta"
-                                />
-                            </div>
-                        )}
-
-                        <button 
-                            className="btn btn-primary" 
-                            onClick={handleTest}
-                            disabled={testing}
-                            style={{ width: '100%' }}
-                        >
-                            {testing ? '🔄 Testando Conexão...' : '🔗 Salvar e Testar Conexão'}
-                        </button>
-
-                        {testResult && (
-                            <div className={testResult.success ? 'success-box' : 'error-box'} style={{ marginTop: '15px' }}>
-                                {testResult.message}
-                            </div>
-                        )}
+                {testResult && (
+                    <div className={testResult.success ? 'success-box' : 'error-box'} style={{ marginTop: '15px' }}>
+                        {testResult.message}
                     </div>
+                )}
+            </div>
 
-                    <div className="card">
-                        <h3>📊 Conexões Ativas</h3>
-                        
-                        {connectedProviders.length === 0 ? (
-                            <div style={{ textAlign: 'center', color: '#a0a0a0', padding: '40px' }}>
-                                Nenhuma conexão ativa. Configure uma API acima para começar.
-                            </div>
-                        ) : (
-                            <div>
-                                {connectedProviders.map(provider => {
-                                    const providerInfo = API_PROVIDERS[provider];
-                                    const conn = apiManager.connections.get(provider);
-                                    const isActive = apiManager.activeProvider === provider;
-                                    
-                                    return (
-                                        <div key={provider} className={`api-provider-card ${isActive ? 'connected' : ''}`}>
-                                            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
-                                                <div style={{ flex: 1 }}>
-                                                    <h4 style={{ color: '#00ff88', margin: 0 }}>
-                                                        {providerInfo.icon} {providerInfo.name}
-                                                    </h4>
-                                                    <small style={{ color: '#a0a0a0' }}>
-                                                        {isActive && '🟢 Provedor ativo • '}
-                                                        Conectado em: {conn.lastTested?.toLocaleString('pt-BR') || 'Agora'}
-                                                    </small>
-                                                </div>
-                                                <div className="api-status-badge api-status-connected">
-                                                    ✅ Conectado
-                                                </div>
-                                            </div>
-
-                                            <div style={{ display: 'flex', gap: '10px' }}>
-                                                {!isActive && (
-                                                    <button 
-                                                        className="btn btn-primary"
-                                                        onClick={() => {
-                                                            apiManager.setActive(provider);
-                                                            showNotification(`${providerInfo.name} ativado`);
-                                                            onConnectionChange();
-                                                        }}
-                                                    >
-                                                        ⚡ Ativar
-                                                    </button>
-                                                )}
-                                                <button 
-                                                    className="btn btn-danger"
-                                                    onClick={() => handleDisconnect(provider)}
-                                                >
-                                                    🗑️ Remover
-                                                </button>
-                                            </div>
+            <div className="card">
+                <h3>📊 Conexões Ativas</h3>
+                
+                {connectedProviders.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: '#a0a0a0', padding: '40px' }}>
+                        Nenhuma conexão ativa. Configure uma API acima para começar.
+                    </div>
+                ) : (
+                    <div>
+                        {connectedProviders.map(provider => {
+                            const providerInfo = API_PROVIDERS[provider];
+                            const conn = apiManager.connections.get(provider);
+                            const isActive = apiManager.activeProvider === provider;
+                            
+                            return (
+                                <div key={provider} className={`api-provider-card ${isActive ? 'connected' : ''}`}>
+                                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <h4 style={{ color: '#00ff88', margin: 0 }}>
+                                                {providerInfo.icon} {providerInfo.name}
+                                            </h4>
+                                            <small style={{ color: '#a0a0a0' }}>
+                                                {isActive && '🟢 Provedor ativo • '}
+                                                Conectado em: {conn.lastTested?.toLocaleString('pt-BR') || 'Agora'}
+                                            </small>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
+                                        <div className="api-status-badge api-status-connected">
+                                            ✅ Conectado
+                                        </div>
+                                    </div>
 
+                                    <div style={{ display: 'flex', gap: '10px' }}>
+                                        {!isActive && (
+                                            <button 
+                                                className="btn btn-primary"
+                                                onClick={() => {
+                                                    if (apiManager && typeof apiManager.setActive === 'function') {
+                                                        apiManager.setActive(provider);
+                                                        showNotification(`${providerInfo.name} ativado`);
+                                                        if (onConnectionChange) onConnectionChange();
+                                                    }
+                                                }}
+                                            >
+                                                ⚡ Ativar
+                                            </button>
+                                        )}
+                                        <button 
+                                            className="btn btn-danger"
+                                            onClick={() => handleDisconnect(provider)}
+                                        >
+                                            🗑️ Remover
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
                     <div className="card">
                         <h3>ℹ️ Como Obter Chaves de API</h3>
                         <div style={{ lineHeight: '1.8', color: '#c0c0c0' }}>
@@ -2387,9 +2412,25 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
                             Versão: 2.1.0 | Build: 2024.003 | APIs Integradas
                         </div>
                     </div>
+                
+
+                <div className="card">
+                <h3>ℹ️ Como Obter Chaves de API</h3>
+                <div style={{ lineHeight: '1.8', color: '#c0c0c0' }}>
+                    <p><strong>Binance:</strong></p>
+                    <p>1. Acesse binance.com e faça login</p>
+                    <p>2. Vá em "API Management" no menu do perfil</p>
+                    <p>3. Crie uma nova chave com permissões de leitura</p>
+                    <br />
+                    <p><strong>Alpha Vantage:</strong></p>
+                    <p>1. Acesse alphavantage.co/support</p>
+                    <p>2. Obtenha uma chave gratuita (500 calls/dia)</p>
                 </div>
-            );
-        }
+            </div>
+        </div>
+    );
+}
+      
 
         // Renderizar aplicação
         try {
@@ -2404,6 +2445,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
