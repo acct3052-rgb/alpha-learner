@@ -1349,7 +1349,7 @@
            ======================================== */
 
         function App() {
-            const [connectionVersion, setConnectionVersion] = useState(dashboard);
+            const [connectionVersion, setConnectionVersion] = useState('dashboard');
             const [mode, setMode] = useState('manual');
             const [isActive, setIsActive] = useState(false);
             const [signals, setSignals] = useState([]);
@@ -2474,6 +2474,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
