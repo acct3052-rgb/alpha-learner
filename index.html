@@ -1469,14 +1469,31 @@
             }, [isActive]);
 
             const scheduleSignalVerification = (signal) => {
-                const timeframeMs = signal.timeframe === 'M5' ? 5 * 60 * 1000 : 15 * 60 * 1000;
-                
-                const timerId = setTimeout(() => {
-                    verifySignalOutcome(signal);
-                }, timeframeMs);
+    try {
+        const now = new Date().getTime();
+        const entryTime = new Date(signal.entryTime).getTime();
+        const timeframeMs = signal.timeframe === 'M5' ? 5 * 60 * 1000 : 15 * 60 * 1000;
+        
+        // Calcular quando fazer a verificação:
+        // Tempo até entrada + timeframe do sinal
+        const timeUntilEntry = Math.max(0, entryTime - now);
+        const verificationDelay = timeUntilEntry + timeframeMs;
+        
+        console.log(`⏰ Sinal ${signal.direction} agendado:`);
+        console.log(`   Entrada em: ${new Date(entryTime).toLocaleTimeString()}`);
+        console.log(`   Verificação em: ${new Date(now + verificationDelay).toLocaleTimeString()}`);
+        console.log(`   Aguardar: ${Math.round(verificationDelay / 1000)}s (${Math.round(timeUntilEntry / 1000)}s até entrada + ${timeframeMs / 1000}s de timeframe)`);
+        
+        const timerId = setTimeout(() => {
+            console.log(`🔍 Verificando resultado do sinal ${signal.direction}...`);
+            verifySignalOutcome(signal);
+        }, verificationDelay);
 
-                verificationTimers.current.set(signal.id, timerId);
-            };
+        verificationTimers.current.set(signal.id, timerId);
+    } catch (error) {
+        console.error('Erro ao agendar verificação:', error);
+    }
+};
 
             const verifySignalOutcome = async (signal) => {
                 try {
@@ -2443,6 +2460,7 @@ ${signal.divergence ? `Divergência: ${signal.divergence.type}` : ''}
 </body>
 
 </html>
+
 
 
 
