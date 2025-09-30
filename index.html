@@ -7,6 +7,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.5/babel.min.js"></script>
+    <!-- ✅ ADICIONAR: Biblioteca Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         * {
             margin: 0;
@@ -522,7 +524,26 @@
 <body>
     <div id="root"></div>
     <script type="text/babel">
+        // ========================================
+// IMPORTAR SUPABASE CLIENT
+// ========================================
+import { supabaseStorage } from './supabase-client.js';
+
+// Substituir todas as classes que usam localStorage
         const { useState, useEffect, useRef } = React;
+
+        // ========================================
+        // ✅ CONFIGURAÇÃO SUPABASE
+        // ========================================
+        
+        // ⚠️ SUBSTITUA PELOS SEUS VALORES DO PASSO 1.3
+        const SUPABASE_URL = 'https://gvgxiketszcvskrwlrcp.supabase.co'; // ← COLE SEU URL AQUI
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2Z3hpa2V0c3pjdnNrcndscmNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyNjQ4ODYsImV4cCI6MjA3NDg0MDg4Nn0.8H2Ys0mMKJQIydkrHzORK0mvkStgRR1lmpPutwE1rvE'; // ← COLE SUA KEY AQUI
+        
+        // Criar cliente Supabase
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        console.log('✅ Supabase inicializado');
         
         // Variáveis globais para auditoria
         window.auditSystemRef = null;
@@ -1495,20 +1516,82 @@
 
         /* Continua na PARTE 3... */
 
-        /* ========================================
-           CLASSES TÉCNICAS (MemoryDB, MarketData, Indicators, AlphaEngine)
-           ======================================== */
-
+        // ========================================
+        // ✅ MEMORYDB COM SUPABASE
+        // ========================================
+        
         class MemoryDB {
             constructor() {
                 this.signals_history = [];
                 this.ml_weights_evolution = [];
                 this.config_snapshots = [];
-                this.listeners = new Set(); // NOVO: Para notificar mudanças
-                this.loadFromStorage();
+                this.listeners = new Set();
+                this.isInitialized = false;
             }
 
-            // NOVO: Método para registrar listeners
+            async init() {
+                if (this.isInitialized) return;
+                
+                try {
+                    // Carregar sinais do Supabase
+                    const { data: signals, error: signalsError } = await supabase
+                        .from('signals')
+                        .select('*')
+                        .order('timestamp', { ascending: false })
+                        .limit(200);
+
+                    if (signalsError) throw signalsError;
+
+                    // Converter para formato da aplicação
+                    this.signals_history = (signals || []).map(s => ({
+                        id: s.id,
+                        timestamp: new Date(s.timestamp),
+                        symbol: s.symbol,
+                        direction: s.direction,
+                        timeframe: s.timeframe,
+                        score: s.score,
+                        price: parseFloat(s.price),
+                        stopLoss: parseFloat(s.stop_loss),
+                        takeProfit: parseFloat(s.take_profit),
+                        riskReward: s.risk_reward ? parseFloat(s.risk_reward) : 2,
+                        status: s.status,
+                        pnl: s.pnl ? parseFloat(s.pnl) : 0,
+                        finalPrice: s.final_price ? parseFloat(s.final_price) : null,
+                        entryTime: s.entry_time ? new Date(s.entry_time) : null,
+                        contributors: s.contributors,
+                        divergence: s.divergence,
+                        features: s.features,
+                        dataSource: s.data_source,
+                        executed: s.executed || false,
+                        executionDetails: s.execution_details,
+                        tpslDetails: s.tpsl_details,
+                        savedAt: s.saved_at
+                    }));
+
+                    // Carregar pesos ML
+                    const { data: weights, error: weightsError } = await supabase
+                        .from('ml_weights_evolution')
+                        .select('*')
+                        .order('created_at', { ascending: false })
+                        .limit(50);
+
+                    if (weightsError) throw weightsError;
+
+                    this.ml_weights_evolution = (weights || []).map(w => ({
+                        date: w.created_at,
+                        weights: w.weights,
+                        performance: w.performance
+                    }));
+
+                    this.isInitialized = true;
+                    console.log('✅ MemoryDB carregado do Supabase:', this.signals_history.length, 'sinais');
+
+                } catch (error) {
+                    console.error('❌ Erro ao carregar MemoryDB:', error);
+                    this.isInitialized = true; // Continuar mesmo com erro
+                }
+            }
+
             addChangeListener(callback) {
                 this.listeners.add(callback);
             }
@@ -1527,75 +1610,123 @@
                 });
             }
 
-            loadFromStorage() {
-                try {
-                    const saved = localStorage.getItem('alpha_learner_data');
-                    if (saved) {
-                        const data = JSON.parse(saved);
-                        this.signals_history = data.signals_history || [];
-                        this.ml_weights_evolution = data.ml_weights_evolution || [];
-                        this.config_snapshots = data.config_snapshots || [];
-                    }
-                } catch (error) {
-                    console.error('Erro ao carregar dados:', error);
-                }
-            }
-
-            saveToStorage() {
-                try {
-                    const data = {
-                        signals_history: this.signals_history,
-                        ml_weights_evolution: this.ml_weights_evolution,
-                        config_snapshots: this.config_snapshots
-                    };
-                    localStorage.setItem('alpha_learner_data', JSON.stringify(data));
-                    this.notifyChange(); // NOVO: Notificar mudanças
-                } catch (error) {
-                    console.error('Erro ao salvar dados:', error);
-                }
-            }
-
             async saveSignal(signal) {
-                this.signals_history.push({
-                    ...signal,
-                    savedAt: new Date().toISOString()
-                });
-                this.saveToStorage();
+                try {
+                    // Salvar no Supabase
+                    const { error } = await supabase
+                        .from('signals')
+                        .upsert({
+                            id: signal.id,
+                            timestamp: signal.timestamp.toISOString(),
+                            symbol: signal.symbol,
+                            direction: signal.direction,
+                            timeframe: signal.timeframe,
+                            score: signal.score,
+                            price: signal.price,
+                            stop_loss: signal.stopLoss,
+                            take_profit: signal.takeProfit,
+                            risk_reward: signal.riskReward,
+                            status: signal.status || 'PENDENTE',
+                            pnl: signal.pnl || 0,
+                            final_price: signal.finalPrice,
+                            entry_time: signal.entryTime,
+                            contributors: signal.contributors,
+                            divergence: signal.divergence,
+                            features: signal.features,
+                            data_source: signal.dataSource,
+                            executed: signal.executed || false,
+                            execution_details: signal.executionDetails,
+                            tpsl_details: signal.tpslDetails,
+                            saved_at: new Date().toISOString()
+                        });
+
+                    if (error) throw error;
+
+                    // Adicionar ao array local
+                    this.signals_history.push({
+                        ...signal,
+                        savedAt: new Date().toISOString()
+                    });
+
+                    console.log('💾 Sinal salvo no Supabase:', signal.id);
+                    this.notifyChange();
+
+                } catch (error) {
+                    console.error('❌ Erro ao salvar sinal:', error);
+                }
             }
 
             async getAllSignals() {
+                if (!this.isInitialized) await this.init();
                 return [...this.signals_history];
             }
 
             async saveWeightsSnapshot(weights, performance) {
-                const snapshot = {
-                    date: new Date().toISOString(),
-                    weights: { ...weights },
-                    performance: { ...performance }
-                };
-                this.ml_weights_evolution.push(snapshot);
-                this.saveToStorage();
+                try {
+                    const { error } = await supabase
+                        .from('ml_weights_evolution')
+                        .insert({
+                            weights: weights,
+                            performance: performance
+                        });
+
+                    if (error) throw error;
+
+                    const snapshot = {
+                        date: new Date().toISOString(),
+                        weights: { ...weights },
+                        performance: { ...performance }
+                    };
+
+                    this.ml_weights_evolution.push(snapshot);
+                    this.notifyChange();
+
+                    console.log('💾 Pesos ML salvos no Supabase');
+
+                } catch (error) {
+                    console.error('❌ Erro ao salvar pesos:', error);
+                }
             }
 
             async getWeightsHistory() {
+                if (!this.isInitialized) await this.init();
                 return [...this.ml_weights_evolution];
             }
 
             async getStatistics() {
-                const signals = await this.getAllSignals();
-                const completed = signals.filter(s => s.status !== 'PENDENTE');
-                const successful = completed.filter(s => s.status === 'ACERTO');
-                
-                return {
-                    total: signals.length,
-                    completed: completed.length,
-                    successful: successful.length,
-                    winRate: completed.length > 0 ? (successful.length / completed.length) * 100 : 0,
-                    totalPnL: completed.reduce((sum, s) => sum + (s.pnl || 0), 0)
-                };
+                try {
+                    const { data, error } = await supabase
+                        .from('signals')
+                        .select('status, pnl');
+
+                    if (error) throw error;
+
+                    const signals = data || [];
+                    const total = signals.length;
+                    const completed = signals.filter(s => s.status !== 'PENDENTE').length;
+                    const successful = signals.filter(s => s.status === 'ACERTO').length;
+                    const totalPnL = signals.reduce((sum, s) => sum + parseFloat(s.pnl || 0), 0);
+
+                    return {
+                        total,
+                        completed,
+                        successful,
+                        winRate: completed > 0 ? (successful / completed) * 100 : 0,
+                        totalPnL
+                    };
+
+                } catch (error) {
+                    console.error('❌ Erro ao calcular estatísticas:', error);
+                    return {
+                        total: 0,
+                        completed: 0,
+                        successful: 0,
+                        winRate: 0,
+                        totalPnL: 0
+                    };
+                }
             }
         }
-
         class MarketDataSimulator {
             constructor() {
                 this.prices = [];
@@ -3137,9 +3268,10 @@ useEffect(() => {
 }, [mode]);
 
             useEffect(() => {
-                try {
-                    console.log('🚀 Inicializando sistema...');
-                    // ✅ SOLICITAR PERMISSÃO PARA NOTIFICAÇÕES
+               try {
+                console.log('🚀 Inicializando sistema...');
+                
+                // ✅ Solicitar permissão para notificações
                 if ("Notification" in window && Notification.permission === "default") {
                     Notification.requestPermission().then(permission => {
                         if (permission === "granted") {
@@ -3147,48 +3279,44 @@ useEffect(() => {
                         }
                     });
                 }
-                    
-                    const savedConfig = localStorage.getItem('alpha_config');
-                    if (savedConfig) {
-                        const config = JSON.parse(savedConfig);
-                        setMinScore(config.minScore || 50);
-                        setRiskAmount(config.riskAmount || 100);
-                        setMaxPositions(config.maxPositions || 3);
-                    }
-                    
-                    memoryDBRef.current = new MemoryDB();
+                
+                // ✅ Inicializar MemoryDB com Supabase
+                memoryDBRef.current = new MemoryDB();
+                memoryDBRef.current.init().then(() => {
                     setMemoryDB(memoryDBRef.current);
-                    console.log('✅ MemoryDB inicializado');
-                    
-                    marketDataRef.current = new MarketDataSimulator();
-                    setMarketData(marketDataRef.current);
-                    console.log('✅ MarketData inicializado');
-                    
-                    auditSystemRef.current = new AuditSystem();
-                    window.auditSystemRef = auditSystemRef.current;
+                    console.log('✅ MemoryDB inicializado com Supabase');
+                });
+                
+                marketDataRef.current = new MarketDataSimulator();
+                setMarketData(marketDataRef.current);
+                console.log('✅ MarketData inicializado');
+                
+                // ✅ Inicializar AuditSystem com Supabase
+                auditSystemRef.current = new AuditSystem();
+                window.auditSystemRef = auditSystemRef.current;
+                auditSystemRef.current.init().then(() => {
                     setAuditSystem(auditSystemRef.current);
-                    console.log('✅ AuditSystem inicializado e disponível globalmente');
-                    
-                    alphaEngineRef.current = new AlphaEngine(memoryDBRef.current);
-                alphaEngineRef.current.marketDataRef = marketDataRef.current; // ✨ NOVO
-                alphaEngineRef.current.tpslOptimizer = new TPSLOptimizer(auditSystemRef.current); // ✨ NOVO
+                    console.log('✅ AuditSystem inicializado com Supabase');
+                });
+                
+                alphaEngineRef.current = new AlphaEngine(memoryDBRef.current);
+                alphaEngineRef.current.marketDataRef = marketDataRef.current;
+                alphaEngineRef.current.tpslOptimizer = new TPSLOptimizer(auditSystemRef.current);
                 setAlphaEngine(alphaEngineRef.current);
-                console.log('✅ AlphaEngine inicializado com otimizador TP/SL');
-                    
-                    apiManagerRef.current = new APIConnectionManager();
-                    setApiManager(apiManagerRef.current);
-                    console.log('✅ APIManager inicializado');
-                    
-                    orderExecutorRef.current = new OrderExecutionManager(apiManagerRef.current);
-                    setOrderExecutor(orderExecutorRef.current);
-                    console.log('✅ OrderExecutor inicializado');
+                console.log('✅ AlphaEngine inicializado');
+                
+                apiManagerRef.current = new APIConnectionManager();
+                setApiManager(apiManagerRef.current);
+                console.log('✅ APIManager inicializado');
+                
+                orderExecutorRef.current = new OrderExecutionManager(apiManagerRef.current);
+                setOrderExecutor(orderExecutorRef.current);
+                console.log('✅ OrderExecutor inicializado');
 
-                    // ✨ NOVO: Telegram Notifier
                 const telegramNotifier = new TelegramNotifier();
                 window.telegramNotifier = telegramNotifier;
                 console.log('✅ TelegramNotifier inicializado');
 
-                // Relatório diário às 23:59
                 const scheduleDailyReport = () => {
                     const now = new Date();
                     const tonight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0);
@@ -3209,34 +3337,32 @@ useEffect(() => {
                 };
 
                 scheduleDailyReport();
-                    
-                    // NOVO: Registrar listeners para atualizações
-                    const updateCallback = () => setUpdateTrigger(prev => prev + 1);
-                    
-                    memoryDBRef.current.addChangeListener(updateCallback);
-                    alphaEngineRef.current.addChangeListener(updateCallback);
-                    auditSystemRef.current.addChangeListener(updateCallback);
-                    
-                    console.log('🎉 Sistema totalmente inicializado!');
-                    console.log('%c💡 DICA: Digite auditDiag() no console para diagnóstico rápido', 'color: #00ff88; font-weight: bold;');
-                    // Aprende a cada 5 minutos
+                
+                const updateCallback = () => setUpdateTrigger(prev => prev + 1);
+                
+                memoryDBRef.current.addChangeListener(updateCallback);
+                alphaEngineRef.current.addChangeListener(updateCallback);
+                auditSystemRef.current.addChangeListener(updateCallback);
+                
+                console.log('🎉 Sistema totalmente inicializado!');
+                console.log('%c💡 Sistema agora usa SUPABASE para persistência!', 'color: #00ff88; font-weight: bold;');
+                
                 setInterval(() => {
                     if (alphaEngineRef.current && alphaEngineRef.current.tpslOptimizer) {
                         alphaEngineRef.current.tpslOptimizer.learnFromResults();
                     }
                 }, 5 * 60 * 1000);
-                    
-                    // Cleanup
-                    return () => {
-                        if (memoryDBRef.current) memoryDBRef.current.removeChangeListener(updateCallback);
-                        if (alphaEngineRef.current) alphaEngineRef.current.removeChangeListener(updateCallback);
-                        if (auditSystemRef.current) auditSystemRef.current.removeChangeListener(updateCallback);
-                    };
-                    
-                } catch (error) {
-                    console.error('❌ Erro na inicialização:', error);
-                }
-            }, []);
+                
+                return () => {
+                    if (memoryDBRef.current) memoryDBRef.current.removeChangeListener(updateCallback);
+                    if (alphaEngineRef.current) alphaEngineRef.current.removeChangeListener(updateCallback);
+                    if (auditSystemRef.current) auditSystemRef.current.removeChangeListener(updateCallback);
+                };
+                
+            } catch (error) {
+                console.error('❌ Erro na inicialização:', error);
+            }
+        }, []);
 
             // ✅ LIMPEZA DE TIMERS AO DESMONTAR
             useEffect(() => {
@@ -6129,6 +6255,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
