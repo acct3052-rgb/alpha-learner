@@ -1113,83 +1113,184 @@
            ======================================== */
 
         class AuditSystem {
-            constructor() {
-                this.auditLogs = [];
-                this.performanceByHour = {};
-                this.performanceByScore = {};
-                this.indicatorPerformance = {};
-                this.listeners = new Set(); // NOVO: Para notificar mudanças
-                this.loadFromStorage();
+    constructor() {
+        this.auditLogs = [];
+        this.performanceByHour = {};
+        this.performanceByScore = {};
+        this.indicatorPerformance = {};
+        this.listeners = new Set();
+        this.isInitialized = false;
+        this.loadFromStorage();
+    }
+
+    // ✅ ADICIONE ESTE MÉTODO AQUI
+    async init() {
+        if (this.isInitialized) return;
+        
+        try {
+            // Carregar logs do Supabase
+            const { data: logs, error: logsError } = await supabase
+                .from('audit_logs')
+                .select('*')
+                .order('generated_at', { ascending: false })
+                .limit(500);
+
+            if (logsError && logsError.code !== 'PGRST116') throw logsError;
+
+            if (logs && logs.length > 0) {
+                this.auditLogs = logs.map(log => ({
+                    signalId: log.signal_id,
+                    generatedAt: log.generated_at,
+                    candleCloseTime: log.candle_close_time,
+                    timeDifference: log.time_difference,
+                    prices: log.prices,
+                    indicators: log.indicators,
+                    scoreRange: log.score_range,
+                    hourOfDay: log.hour_of_day,
+                    outcome: log.outcome,
+                    outcomeTime: log.outcome_time,
+                    reason: log.reason,
+                    metadata: log.metadata
+                }));
             }
 
-            // NOVO: Método para registrar listeners
-            addChangeListener(callback) {
-                this.listeners.add(callback);
-            }
+            // Carregar estatísticas de performance
+            const { data: stats, error: statsError } = await supabase
+                .from('performance_stats')
+                .select('*');
 
-            removeChangeListener(callback) {
-                this.listeners.delete(callback);
-            }
+            if (statsError && statsError.code !== 'PGRST116') throw statsError;
 
-            notifyChange() {
-                this.listeners.forEach(callback => {
-                    try {
-                        callback();
-                    } catch (error) {
-                        console.error('Erro ao notificar listener:', error);
+            if (stats && stats.length > 0) {
+                stats.forEach(stat => {
+                    const statData = {
+                        total: stat.total,
+                        wins: stat.wins,
+                        losses: stat.losses,
+                        expired: stat.expired || 0,
+                        totalPnL: parseFloat(stat.total_pnl || 0)
+                    };
+
+                    if (stat.stat_type === 'by_hour') {
+                        this.performanceByHour[stat.stat_key] = statData;
+                    } else if (stat.stat_type === 'by_score') {
+                        this.performanceByScore[stat.stat_key] = statData;
+                    } else if (stat.stat_type === 'by_indicator') {
+                        this.indicatorPerformance[stat.stat_key] = {
+                            total: stat.total,
+                            wins: stat.wins,
+                            losses: stat.losses
+                        };
                     }
                 });
             }
 
-            loadFromStorage() {
-                try {
-                    const saved = localStorage.getItem('audit_system_data');
-                    if (saved) {
-                        const data = JSON.parse(saved);
-                        this.auditLogs = data.auditLogs || [];
-                        this.performanceByHour = data.performanceByHour || {};
-                        this.performanceByScore = data.performanceByScore || {};
-                        this.indicatorPerformance = data.indicatorPerformance || {};
-                        
-                        if (window.debugAudit) {
-                            console.log('📂 [AUDIT] Dados carregados:', {
-                                logs: this.auditLogs.length,
-                                lastSaved: data.lastSaved || 'N/A'
-                            });
-                        }
-                    } else {
-                        if (window.debugAudit) {
-                            console.log('📂 [AUDIT] Nenhum dado anterior encontrado');
-                        }
-                    }
-                } catch (e) {
-                    console.error('❌ [AUDIT] Erro ao carregar auditoria:', e);
-                }
-            }
+            this.isInitialized = true;
+            console.log('✅ AuditSystem carregado do Supabase:', this.auditLogs.length, 'logs');
 
-            saveToStorage() {
-                try {
-                    const data = {
-                        auditLogs: this.auditLogs.slice(-500),
-                        performanceByHour: this.performanceByHour,
-                        performanceByScore: this.performanceByScore,
-                        indicatorPerformance: this.indicatorPerformance,
-                        lastSaved: new Date().toISOString()
-                    };
-                    localStorage.setItem('audit_system_data', JSON.stringify(data));
-                    
-                    if (window.debugAudit) {
-                        console.log('💾 [AUDIT] Dados salvos:', {
-                            logs: this.auditLogs.length,
-                            timestamp: data.lastSaved
-                        });
-                    }
-                    
-                    this.notifyChange(); // NOVO: Notificar mudanças
-                } catch (e) {
-                    console.error('❌ [AUDIT] Erro ao salvar auditoria:', e);
+        } catch (error) {
+            console.error('❌ Erro ao carregar AuditSystem:', error);
+            this.isInitialized = true;
+        }
+    }
+
+   
+
+           async saveToStorage() {
+    try {
+        // Salvar logs no Supabase
+        if (this.auditLogs.length > 0) {
+            const recentLogs = this.auditLogs.slice(-100); // Últimos 100 logs
+            
+            for (const log of recentLogs) {
+                const { error } = await supabase
+                    .from('audit_logs')
+                    .upsert({
+                        signal_id: log.signalId,
+                        generated_at: log.generatedAt,
+                        candle_close_time: log.candleCloseTime,
+                        time_difference: log.timeDifference,
+                        prices: log.prices,
+                        indicators: log.indicators,
+                        score_range: log.scoreRange,
+                        hour_of_day: log.hourOfDay,
+                        outcome: log.outcome,
+                        outcome_time: log.outcomeTime,
+                        reason: log.reason,
+                        metadata: log.metadata
+                    }, {
+                        onConflict: 'signal_id'
+                    });
+                
+                if (error && error.code !== '23505') { // Ignora erros de duplicata
+                    console.error('Erro ao salvar log:', error);
                 }
             }
+        }
+
+        // Salvar estatísticas de performance
+        const statsToSave = [];
+
+        // Por hora
+        Object.entries(this.performanceByHour).forEach(([hour, stats]) => {
+            statsToSave.push({
+                stat_type: 'by_hour',
+                stat_key: hour,
+                total: stats.total,
+                wins: stats.wins,
+                losses: stats.losses,
+                expired: stats.expired || 0,
+                total_pnl: stats.totalPnL
+            });
+        });
+
+        // Por score
+        Object.entries(this.performanceByScore).forEach(([range, stats]) => {
+            statsToSave.push({
+                stat_type: 'by_score',
+                stat_key: range,
+                total: stats.total,
+                wins: stats.wins,
+                losses: stats.losses,
+                expired: stats.expired || 0,
+                total_pnl: 0
+            });
+        });
+
+        // Por indicador
+        Object.entries(this.indicatorPerformance).forEach(([indicator, stats]) => {
+            statsToSave.push({
+                stat_type: 'by_indicator',
+                stat_key: indicator,
+                total: stats.total,
+                wins: stats.wins,
+                losses: stats.losses,
+                expired: 0,
+                total_pnl: 0
+            });
+        });
+
+        if (statsToSave.length > 0) {
+            const { error: statsError } = await supabase
+                .from('performance_stats')
+                .upsert(statsToSave, {
+                    onConflict: 'stat_type,stat_key'
+                });
+
+            if (statsError) {
+                console.error('Erro ao salvar estatísticas:', statsError);
+            }
+        }
+
+        if (window.debugAudit) {
+            console.log('💾 [AUDIT] Dados salvos no Supabase');
+        }
+        
+        this.notifyChange();
+    } catch (e) {
+        console.error('❌ [AUDIT] Erro ao salvar auditoria:', e);
+    }
+}
 
             logSignalGeneration(signal, currentPrice, indicators) {
                 if (window.debugAudit) {
@@ -3273,6 +3374,7 @@ useEffect(() => {
                 console.log('✅ AlphaEngine inicializado');
                 
                 apiManagerRef.current = new APIConnectionManager();
+                await apiManagerRef.current.ensureInitialized();
                 setApiManager(apiManagerRef.current);
                 console.log('✅ APIManager inicializado');
                 
@@ -6222,6 +6324,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
