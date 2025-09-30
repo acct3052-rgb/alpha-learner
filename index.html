@@ -3347,55 +3347,50 @@ useEffect(() => {
         console.log(`Sinal gerado: Score ${signal.score} | Mínimo necessário: ${minScoreRef.current}`);
     }
 
-    if (signal && signal.score >= minScoreRef.current) {
-        console.log('%cSINAL APROVADO! Mostrando notificação...', 'color: #00ff88; font-weight: bold;');
-        setSignals(prev => [signal, ...prev.slice(0, 9)]);
-        showNotification(`Novo sinal ${signal.direction} - Score: ${signal.score}%`);
-                        
-                        if (signal && signal.score >= minScoreRef.current) {
-                            setSignals(prev => [signal, ...prev.slice(0, 9)]);
-                            showNotification(`Novo sinal ${signal.direction} - Score: ${signal.score}%`);
-                            playAlert();
-                            scheduleSignalVerification(signal);
-                        // ✨ NOVO: Notifica via Telegram
-                            if (window.telegramNotifier && window.telegramNotifier.isEnabled()) {
-                                window.telegramNotifier.notifySignal(signal);
-                            }
-                            
-                            if (modeRef.current === 'auto' && orderExecutorRef.current) {
-                                const executionResult = await orderExecutorRef.current.executeSignalAuto(
-                                    signal,
-                                    mode,
-                                    riskAmount
-                                );
-                                
-                                if (executionResult.success) {
-                                    showNotification(
-                                        `🤖 ORDEM EXECUTADA: ${signal.direction} @ ${
-                                            executionResult.executedPrice.toFixed(2)
-                                        } | ID: ${executionResult.orderId}`
-                                    );
-                                    
-                                    signal.executed = true;
-                                    signal.executionDetails = executionResult;
-                                    // ✨ NOVO: Notifica execução
-                               (window.telegramNotifier && window.telegramNotifier.isEnabled()) {
-                                    window.telegramNotifier.notifyExecution(signal, executionResult);
-                                }
-                                    
-                                    setSignals(prev => prev.map(s => 
-                                        s.id === signal.id ? signal : s
-                                    ));
-                                } else {
-                                    showNotification(`⚠️ Falha: ${executionResult.message}`);
-                                }
-                            }
-                        }
-                    } catch (error) {
-                        console.error('❌ [LOOP] Erro:', error);
-                    }
-                }, 30000);
+     if (signal && signal.score >= minScoreRef.current) {
+            console.log('%cSINAL APROVADO! Mostrando notificação...', 'color: #00ff88; font-weight: bold;');
+            
+            setSignals(prev => [signal, ...prev.slice(0, 9)]);
+            showNotification(`Novo sinal ${signal.direction} - Score: ${signal.score}%`);
+            playAlert();
+            scheduleSignalVerification(signal);
 
+            if (window.telegramNotifier && window.telegramNotifier.isEnabled()) {
+                window.telegramNotifier.notifySignal(signal);
+            }
+            
+            // Verificação para o modo automático
+            if (modeRef.current === 'auto' && orderExecutorRef.current) {
+                const executionResult = await orderExecutorRef.current.executeSignalAuto(
+                    signal,
+                    modeRef.current, // Usando a referência
+                    riskAmount // Supondo que riskAmount também tenha uma ref se for dinâmico
+                );
+                
+                if (executionResult.success) {
+                    showNotification(
+                        `🤖 ORDEM EXECUTADA: ${signal.direction} @ ${executionResult.executedPrice.toFixed(2)} | ID: ${executionResult.orderId}`
+                    );
+                    
+                    signal.executed = true;
+                    signal.executionDetails = executionResult;
+
+                    if (window.telegramNotifier && window.telegramNotifier.isEnabled()) {
+                        window.telegramNotifier.notifyExecution(signal, executionResult);
+                    }
+                    
+                    // Atualiza o sinal na lista para mostrar que foi executado
+                    setSignals(prev => prev.map(s => s.id === signal.id ? signal : s));
+                } else {
+                    showNotification(`⚠️ Falha na execução automática: ${executionResult.message}`);
+                }
+            }
+        } // <--- Fim do IF principal
+
+    } catch (error) { // <--- Agora o CATCH está correto
+        console.error('❌ [LOOP] Erro:', error);
+    }
+}, 30000);
                 return () => clearInterval(interval);
             }, [isActive, marketData, alphaEngine, minScore, apiManager, dataSource, mode, riskAmount, orderExecutor]); // ✅ ADICIONADO: orderExecutor
 
@@ -6127,6 +6122,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
