@@ -3379,7 +3379,7 @@ useEffect(() => {
                                     signal.executed = true;
                                     signal.executionDetails = executionResult;
                                     // ✨ NOVO: Notifica execução
-                                if (window.telegramNotifier && window.telegramNotifier.isEnabled()) {
+                               (window.telegramNotifier && window.telegramNotifier.isEnabled()) {
                                     window.telegramNotifier.notifyExecution(signal, executionResult);
                                 }
                                     
@@ -6127,6 +6127,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
