@@ -3557,8 +3557,10 @@ useEffect(() => {
         return s;
     });
 });
-                        s.id === signal.id ? { ...s, status: result, pnl, finalPrice: currentPrice } : s
-                    ));
+                       // Substitua o bloco problemático por esta única linha de código:
+
+setSignals(prev => prev.map(s => s.id === signal.id ? { ...s, status: result, pnl, finalPrice: currentPrice } : s));
+
 
                     showNotification(
                         result === 'ACERTO' 
@@ -6124,6 +6126,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
