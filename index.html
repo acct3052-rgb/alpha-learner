@@ -3341,6 +3341,16 @@ useEffect(() => {
                         }
                         
                         const signal = alphaEngine.analyzeMarket(marketData, currentDataSource);
+
+                        // ADICIONE ESTE LOG PARA DEPURAÇÃO
+    if (signal) {
+        console.log(`Sinal gerado: Score ${signal.score} | Mínimo necessário: ${minScoreRef.current}`);
+    }
+
+    if (signal && signal.score >= minScoreRef.current) {
+        console.log('%cSINAL APROVADO! Mostrando notificação...', 'color: #00ff88; font-weight: bold;');
+        setSignals(prev => [signal, ...prev.slice(0, 9)]);
+        showNotification(`Novo sinal ${signal.direction} - Score: ${signal.score}%`);
                         
                         if (signal && signal.score >= minScoreRef.current) {
                             setSignals(prev => [signal, ...prev.slice(0, 9)]);
@@ -3541,6 +3551,15 @@ useEffect(() => {
                     }
 
                     setSignals(prev => prev.map(s => 
+                        
+    return prevSignals.map(s => {
+        if (s.id === signal.id) {
+            // Retorna um novo objeto para o sinal atualizado
+            return { ...s, status: result, pnl, finalPrice: currentPrice };
+        }
+        return s;
+    });
+});
                         s.id === signal.id ? { ...s, status: result, pnl, finalPrice: currentPrice } : s
                     ));
 
@@ -6108,6 +6127,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
