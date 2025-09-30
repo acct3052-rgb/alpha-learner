@@ -1768,8 +1768,414 @@
                 
                 return trSum / period;
             }
-        }
 
+            // ✨ NOVO: Volume Profile
+            static analyzeVolume(prices, period = 20) {
+                if (prices.length < period) {
+                    return {
+                        avgVolume: 0,
+                        volumeTrend: 'neutral',
+                        volumeStrength: 0,
+                        isAnomalous: false
+                    };
+                }
+
+                const recentPrices = prices.slice(-period);
+                const volumes = recentPrices.map(p => p.volume);
+                const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
+                
+                const currentVolume = prices[prices.length - 1].volume;
+                const volumeRatio = currentVolume / avgVolume;
+                
+                const isAnomalous = volumeRatio > 2.0;
+                
+                const recent5 = volumes.slice(-5).reduce((a, b) => a + b, 0) / 5;
+                const previous5 = volumes.slice(-10, -5).reduce((a, b) => a + b, 0) / 5;
+                
+                let volumeTrend = 'neutral';
+                if (recent5 > previous5 * 1.2) volumeTrend = 'increasing';
+                else if (recent5 < previous5 * 0.8) volumeTrend = 'decreasing';
+                
+                const volumeStrength = Math.min(1, volumeRatio / 2);
+                
+                return {
+                    avgVolume,
+                    currentVolume,
+                    volumeRatio,
+                    volumeTrend,
+                    volumeStrength,
+                    isAnomalous
+                };
+            }
+
+            // ✨ NOVO: On-Balance Volume (OBV)
+            static calculateOBV(prices) {
+                if (prices.length < 2) return { obv: 0, trend: 'neutral', strength: 0 };
+
+                let obv = 0;
+                const obvValues = [0];
+                
+                for (let i = 1; i < prices.length; i++) {
+                    if (prices[i].close > prices[i - 1].close) {
+                        obv += prices[i].volume;
+                    } else if (prices[i].close < prices[i - 1].close) {
+                        obv -= prices[i].volume;
+                    }
+                    obvValues.push(obv);
+                }
+                
+                const obvEMA20 = this.calculateEMA(obvValues.slice(-20), 20);
+                const obvEMA5 = this.calculateEMA(obvValues.slice(-5), 5);
+                
+                let trend = 'neutral';
+                let strength = 0;
+                
+                if (obvEMA5 > obvEMA20 * 1.05) {
+                    trend = 'bullish';
+                    strength = Math.min(1, (obvEMA5 - obvEMA20) / obvEMA20);
+                } else if (obvEMA5 < obvEMA20 * 0.95) {
+                    trend = 'bearish';
+                    strength = Math.min(1, (obvEMA20 - obvEMA5) / obvEMA20);
+                }
+                
+                const priceTrend = prices[prices.length - 1].close > prices[prices.length - 20]?.close ? 'up' : 'down';
+                const obvTrendDirection = obvValues[obvValues.length - 1] > obvValues[obvValues.length - 20] ? 'up' : 'down';
+                
+                const divergence = priceTrend !== obvTrendDirection;
+                
+                return {
+                    obv: obvValues[obvValues.length - 1],
+                    trend,
+                    strength,
+                    divergence,
+                    signal: this.getOBVSignal(trend, divergence)
+                };
+            }
+
+            static getOBVSignal(trend, divergence) {
+                if (divergence) {
+                    return trend === 'bullish' ? 'hidden_bullish' : 'hidden_bearish';
+                }
+                if (trend === 'bullish') return 'bullish_confirmation';
+                if (trend === 'bearish') return 'bearish_confirmation';
+                return 'neutral';
+            }
+
+            // ✨ NOVO: Ichimoku Cloud
+            static calculateIchimoku(prices, tenkanPeriod = 9, kijunPeriod = 26, senkouBPeriod = 52) {
+                if (prices.length < senkouBPeriod) {
+                    return {
+                        tenkanSen: 0,
+                        kijunSen: 0,
+                        senkouSpanA: 0,
+                        senkouSpanB: 0,
+                        chikouSpan: 0,
+                        signal: 'neutral',
+                        strength: 0,
+                        cloudColor: 'neutral'
+                    };
+                }
+
+                const tenkanHigh = Math.max(...prices.slice(-tenkanPeriod).map(p => p.high));
+                const tenkanLow = Math.min(...prices.slice(-tenkanPeriod).map(p => p.low));
+                const tenkanSen = (tenkanHigh + tenkanLow) / 2;
+
+                const kijunHigh = Math.max(...prices.slice(-kijunPeriod).map(p => p.high));
+                const kijunLow = Math.min(...prices.slice(-kijunPeriod).map(p => p.low));
+                const kijunSen = (kijunHigh + kijunLow) / 2;
+
+                const senkouSpanA = (tenkanSen + kijunSen) / 2;
+
+                const senkouBHigh = Math.max(...prices.slice(-senkouBPeriod).map(p => p.high));
+                const senkouBLow = Math.min(...prices.slice(-senkouBPeriod).map(p => p.low));
+                const senkouSpanB = (senkouBHigh + senkouBLow) / 2;
+
+                const chikouSpan = prices[prices.length - 1].close;
+
+                const currentPrice = prices[prices.length - 1].close;
+                
+                const cloudColor = senkouSpanA > senkouSpanB ? 'bullish' : 'bearish';
+                
+                let signal = 'neutral';
+                let strength = 0;
+                
+                if (currentPrice > Math.max(senkouSpanA, senkouSpanB)) {
+                    signal = 'bullish';
+                    strength = 0.7;
+                    
+                    if (tenkanSen > kijunSen) {
+                        signal = 'strong_bullish';
+                        strength = 0.9;
+                    }
+                } else if (currentPrice < Math.min(senkouSpanA, senkouSpanB)) {
+                    signal = 'bearish';
+                    strength = 0.7;
+                    
+                    if (tenkanSen < kijunSen) {
+                        signal = 'strong_bearish';
+                        strength = 0.9;
+                    }
+                } else {
+                    signal = 'inside_cloud';
+                    strength = 0.3;
+                }
+                
+                const chikouAbovePrice = chikouSpan > prices[prices.length - kijunPeriod]?.close;
+                
+                return {
+                    tenkanSen,
+                    kijunSen,
+                    senkouSpanA,
+                    senkouSpanB,
+                    chikouSpan,
+                    signal,
+                    strength,
+                    cloudColor,
+                    tkCross: tenkanSen > kijunSen ? 'bullish' : 'bearish',
+                    chikouConfirmation: chikouAbovePrice,
+                    priceVsCloud: currentPrice > Math.max(senkouSpanA, senkouSpanB) ? 'above' :
+                                 currentPrice < Math.min(senkouSpanA, senkouSpanB) ? 'below' : 'inside'
+                };
+            }
+
+            // ✨ NOVO: Volume Weighted Average Price (VWAP)
+            static calculateVWAP(prices, period = 20) {
+                if (prices.length < period) {
+                    return { vwap: prices[prices.length - 1].close, signal: 'neutral' };
+                }
+
+                const recentPrices = prices.slice(-period);
+                
+                let sumPriceVolume = 0;
+                let sumVolume = 0;
+                
+                recentPrices.forEach(candle => {
+                    const typicalPrice = (candle.high + candle.low + candle.close) / 3;
+                    sumPriceVolume += typicalPrice * candle.volume;
+                    sumVolume += candle.volume;
+                });
+                
+                const vwap = sumPriceVolume / sumVolume;
+                const currentPrice = prices[prices.length - 1].close;
+                
+                let signal = 'neutral';
+                const deviation = ((currentPrice - vwap) / vwap) * 100;
+                
+                if (deviation > 0.5) signal = 'above_vwap';
+                else if (deviation < -0.5) signal = 'below_vwap';
+                
+                return {
+                    vwap,
+                    currentPrice,
+                    deviation,
+                    signal,
+                    strength: Math.min(1, Math.abs(deviation) / 2)
+                };
+            }
+        }
+        /* ========================================
+   OTIMIZADOR DE TP/SL DINÂMICO
+   ======================================== */
+
+class TPSLOptimizer {
+    constructor(auditSystem) {
+        this.auditSystem = auditSystem;
+        this.optimalRatios = {
+            'M5': { tp: 3.5, sl: 1.5 },
+            'M15': { tp: 4.0, sl: 1.8 }
+        };
+        this.volatilityCache = new Map();
+        this.loadOptimalRatios();
+    }
+
+    loadOptimalRatios() {
+        try {
+            const saved = localStorage.getItem('tpsl_optimal_ratios');
+            if (saved) {
+                const data = JSON.parse(saved);
+                this.optimalRatios = data;
+                console.log('✅ Ratios TP/SL carregados:', this.optimalRatios);
+            }
+        } catch (error) {
+            console.error('Erro ao carregar ratios:', error);
+        }
+    }
+
+    saveOptimalRatios() {
+        try {
+            localStorage.setItem('tpsl_optimal_ratios', JSON.stringify(this.optimalRatios));
+        } catch (error) {
+            console.error('Erro ao salvar ratios:', error);
+        }
+    }
+
+    calculateVolatility(prices, period = 20) {
+        if (prices.length < period) return 0.02;
+        
+        const recentPrices = prices.slice(-period);
+        const returns = [];
+        
+        for (let i = 1; i < recentPrices.length; i++) {
+            const ret = (recentPrices[i].close - recentPrices[i-1].close) / recentPrices[i-1].close;
+            returns.push(ret);
+        }
+        
+        const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+        const variance = returns.reduce((sum, ret) => sum + Math.pow(ret - mean, 2), 0) / returns.length;
+        const volatility = Math.sqrt(variance);
+        
+        return volatility;
+    }
+
+    getOptimalLevels(currentPrice, atr, timeframe, direction, prices) {
+        const volatility = this.calculateVolatility(prices);
+        this.volatilityCache.set(timeframe, volatility);
+        
+        let tpMultiplier = this.optimalRatios[timeframe].tp;
+        let slMultiplier = this.optimalRatios[timeframe].sl;
+        
+        if (volatility < 0.015) {
+            tpMultiplier *= 1.2;
+            slMultiplier *= 0.9;
+        } else if (volatility > 0.03) {
+            tpMultiplier *= 0.8;
+            slMultiplier *= 1.1;
+        }
+        
+        const stopLoss = direction === 'BUY' 
+            ? currentPrice - (atr * slMultiplier)
+            : currentPrice + (atr * slMultiplier);
+            
+        const takeProfit = direction === 'BUY'
+            ? currentPrice + (atr * tpMultiplier)
+            : currentPrice - (atr * tpMultiplier);
+        
+        const adjustedLevels = this.adjustForSupport(currentPrice, stopLoss, takeProfit, prices, direction);
+        
+        return {
+            stopLoss: adjustedLevels.stopLoss,
+            takeProfit: adjustedLevels.takeProfit,
+            atrUsed: atr,
+            volatility: volatility,
+            tpMultiplier: tpMultiplier,
+            slMultiplier: slMultiplier,
+            riskReward: Math.abs(adjustedLevels.takeProfit - currentPrice) / Math.abs(adjustedLevels.stopLoss - currentPrice)
+        };
+    }
+
+    adjustForSupport(currentPrice, stopLoss, takeProfit, prices, direction) {
+        const recentPrices = prices.slice(-50);
+        const highs = recentPrices.map(p => p.high);
+        const lows = recentPrices.map(p => p.low);
+        
+        const resistanceLevels = this.findSignificantLevels(highs, 'high');
+        const supportLevels = this.findSignificantLevels(lows, 'low');
+        
+        let adjustedSL = stopLoss;
+        let adjustedTP = takeProfit;
+        
+        if (direction === 'BUY') {
+            const nearestSupport = supportLevels.find(level => 
+                level < currentPrice && level > stopLoss
+            );
+            if (nearestSupport) {
+                adjustedSL = nearestSupport * 0.998;
+            }
+            
+            const nearestResistance = resistanceLevels.find(level =>
+                level > currentPrice && level < takeProfit
+            );
+            if (nearestResistance) {
+                adjustedTP = nearestResistance * 0.998;
+            }
+        } else {
+            const nearestResistance = resistanceLevels.find(level =>
+                level > currentPrice && level < stopLoss
+            );
+            if (nearestResistance) {
+                adjustedSL = nearestResistance * 1.002;
+            }
+            
+            const nearestSupport = supportLevels.find(level =>
+                level < currentPrice && level > takeProfit
+            );
+            if (nearestSupport) {
+                adjustedTP = nearestSupport * 1.002;
+            }
+        }
+        
+        return { stopLoss: adjustedSL, takeProfit: adjustedTP };
+    }
+
+    findSignificantLevels(prices, type) {
+        const sorted = [...prices].sort((a, b) => b - a);
+        const levels = [];
+        const threshold = 0.005;
+        
+        for (let i = 0; i < sorted.length; i++) {
+            const price = sorted[i];
+            const nearbyCount = sorted.filter(p => 
+                Math.abs(p - price) / price < threshold
+            ).length;
+            
+            if (nearbyCount >= 3) {
+                const isDuplicate = levels.some(level => 
+                    Math.abs(level - price) / price < threshold
+                );
+                if (!isDuplicate) {
+                    levels.push(price);
+                }
+            }
+        }
+        
+        return levels.sort((a, b) => type === 'high' ? b - a : a - b);
+    }
+
+    async learnFromResults() {
+        if (!this.auditSystem) return;
+        
+        const logs = this.auditSystem.getRecentLogs(100);
+        const completedLogs = logs.filter(l => l.outcome && l.outcome !== 'PENDENTE');
+        
+        if (completedLogs.length < 20) return;
+        
+        ['M5', 'M15'].forEach(tf => {
+            const tfLogs = completedLogs.filter(l => l.metadata.timeframe === tf);
+            if (tfLogs.length < 10) return;
+            
+            const acertos = tfLogs.filter(l => l.outcome === 'ACERTO');
+            const erros = tfLogs.filter(l => l.outcome === 'ERRO');
+            const expirados = tfLogs.filter(l => l.outcome === 'EXPIRADO');
+            
+            const winRate = acertos.length / tfLogs.length;
+            const expiredRate = expirados.length / tfLogs.length;
+            
+            if (expiredRate > 0.6) {
+                this.optimalRatios[tf].tp *= 0.9;
+                console.log(`📉 ${tf}: TP reduzido para ${this.optimalRatios[tf].tp.toFixed(2)}x ATR`);
+            } else if (erros.length > acertos.length && winRate < 0.4) {
+                this.optimalRatios[tf].sl *= 1.1;
+                console.log(`📈 ${tf}: SL aumentado para ${this.optimalRatios[tf].sl.toFixed(2)}x ATR`);
+            } else if (winRate > 0.6) {
+                this.optimalRatios[tf].sl *= 0.95;
+                this.optimalRatios[tf].tp *= 1.05;
+                console.log(`✅ ${tf}: Otimizado - TP: ${this.optimalRatios[tf].tp.toFixed(2)}x SL: ${this.optimalRatios[tf].sl.toFixed(2)}x`);
+            }
+            
+            this.optimalRatios[tf].tp = Math.max(2.5, Math.min(6.0, this.optimalRatios[tf].tp));
+            this.optimalRatios[tf].sl = Math.max(1.0, Math.min(3.0, this.optimalRatios[tf].sl));
+        });
+        
+        this.saveOptimalRatios();
+    }
+
+    getStatistics() {
+        return {
+            ratios: this.optimalRatios,
+            volatility: Object.fromEntries(this.volatilityCache)
+        };
+    }
+}
         class AlphaEngine {
             constructor(memoryDB) {
                 this.memoryDB = memoryDB;
@@ -1956,9 +2362,19 @@
                 }
 
                 const direction = score > 0 ? 'BUY' : 'SELL';
-                const atr = TechnicalIndicators.calculateATR([currentPrice]);
-                
-                const timeframeMinutes = direction === 'BUY' ? 5 : 15;
+        const atr = TechnicalIndicators.calculateATR([currentPrice]);
+        
+        // ✨ NOVO: Usa otimizador de TP/SL
+        const prices = this.marketDataRef ? this.marketDataRef.prices : [];
+        const optimizedLevels = this.tpslOptimizer ? 
+            this.tpslOptimizer.getOptimalLevels(currentPrice.close, atr, 'M5', direction, prices) :
+            {
+                stopLoss: direction === 'BUY' ? currentPrice.close - (atr * 2) : currentPrice.close + (atr * 2),
+                takeProfit: direction === 'BUY' ? currentPrice.close + (atr * 4) : currentPrice.close - (atr * 4),
+                riskReward: 2.0
+            };
+        
+        const timeframeMinutes = direction === 'BUY' ? 5 : 15;
                 const entryTime = new Date();
                 entryTime.setMinutes(entryTime.getMinutes() + Math.floor(Math.random() * timeframeMinutes) + 1);
                 
@@ -1970,14 +2386,12 @@
                     timeframe: timeframeMinutes === 5 ? 'M5' : 'M15',
                     score: Math.round(normalizedScore),
                     price: currentPrice.close,
-                    entryTime: entryTime,
-                    stopLoss: direction === 'BUY' ? 
-                        currentPrice.close - (atr * 2) : 
-                        currentPrice.close + (atr * 2),
-                    takeProfit: direction === 'BUY' ? 
-                        currentPrice.close + (atr * 4) : 
-                        currentPrice.close - (atr * 4),
-                    contributors,
+            entryTime: entryTime,
+            stopLoss: optimizedLevels.stopLoss,
+            takeProfit: optimizedLevels.takeProfit,
+            riskReward: optimizedLevels.riskReward,
+            tpslDetails: optimizedLevels, // ✨ NOVO
+            contributors,
                     divergence: features.stochastic.divergence.present ? features.stochastic.divergence : null,
                     features,
                     status: 'PENDENTE',
@@ -2038,6 +2452,324 @@
         }
 
         /* ========================================
+           SISTEMA DE BACKTESTING
+           ======================================== */
+
+        class BacktestEngine {
+            constructor(alphaEngine, memoryDB) {
+                this.alphaEngine = alphaEngine;
+                this.memoryDB = memoryDB;
+                this.results = [];
+                this.isRunning = false;
+            }
+
+            async loadHistoricalData(symbol, timeframe, startDate, endDate) {
+                console.log(`📊 Carregando dados históricos: ${symbol} ${timeframe}`);
+                console.log(`   Período: ${startDate} até ${endDate}`);
+                
+                const data = this.generateHistoricalData(startDate, endDate, timeframe);
+                
+                console.log(`✅ ${data.length} candles carregados`);
+                return data;
+            }
+
+            generateHistoricalData(startDate, endDate, timeframe) {
+                const candles = [];
+                const start = new Date(startDate).getTime();
+                const end = new Date(endDate).getTime();
+                const intervalMs = timeframe === 'M5' ? 5 * 60 * 1000 : 15 * 60 * 1000;
+                
+                let basePrice = 50000;
+                let timestamp = start;
+                
+                while (timestamp <= end) {
+                    const trend = Math.sin(candles.length * 0.01) * 500;
+                    const noise = (Math.random() - 0.5) * 200;
+                    const price = basePrice + trend + noise;
+                    
+                    candles.push({
+                        timestamp,
+                        open: price,
+                        high: price + Math.random() * 100,
+                        low: price - Math.random() * 100,
+                        close: price + (Math.random() - 0.5) * 50,
+                        volume: Math.random() * 1000000
+                    });
+                    
+                    basePrice = price;
+                    timestamp += intervalMs;
+                }
+                
+                return candles;
+            }
+
+            async runBacktest(config) {
+                if (this.isRunning) {
+                    throw new Error('Backtest já em execução');
+                }
+
+                this.isRunning = true;
+                this.results = [];
+                
+                const {
+                    symbol = 'BTCUSDT',
+                    timeframe = 'M5',
+                    startDate,
+                    endDate,
+                    initialBalance = 10000,
+                    riskPerTrade = 100,
+                    minScore = 50
+                } = config;
+
+                console.log('🚀 Iniciando Backtest...');
+                console.log(`   Símbolo: ${symbol}`);
+                console.log(`   Período: ${startDate} a ${endDate}`);
+                console.log(`   Saldo inicial: R$ ${initialBalance}`);
+
+                try {
+                    const historicalData = await this.loadHistoricalData(symbol, timeframe, startDate, endDate);
+                    
+                    if (historicalData.length < 200) {
+                        throw new Error('Dados insuficientes para backtest (mínimo 200 candles)');
+                    }
+
+                    let balance = initialBalance;
+                    let openPositions = [];
+                    const trades = [];
+                    
+                    for (let i = 200; i < historicalData.length; i++) {
+                        const currentCandles = historicalData.slice(0, i + 1);
+                        const currentPrice = currentCandles[i];
+                        
+                        const mockMarketData = {
+                            prices: currentCandles,
+                            getLatestPrice: () => currentPrice
+                        };
+                        
+                        openPositions = openPositions.filter(position => {
+                            const candle = currentPrice;
+                            let closed = false;
+                            let result = null;
+                            let pnl = 0;
+                            
+                            if (position.direction === 'BUY') {
+                                if (candle.high >= position.takeProfit) {
+                                    result = 'WIN';
+                                    pnl = riskPerTrade * 2;
+                                    closed = true;
+                                } else if (candle.low <= position.stopLoss) {
+                                    result = 'LOSS';
+                                    pnl = -riskPerTrade;
+                                    closed = true;
+                                }
+                            } else {
+                                if (candle.low <= position.takeProfit) {
+                                    result = 'WIN';
+                                    pnl = riskPerTrade * 2;
+                                    closed = true;
+                                } else if (candle.high >= position.stopLoss) {
+                                    result = 'LOSS';
+                                    pnl = -riskPerTrade;
+                                    closed = true;
+                                }
+                            }
+                            
+                            if (!closed && i - position.entryIndex > 20) {
+                                result = 'TIMEOUT';
+                                pnl = 0;
+                                closed = true;
+                            }
+                            
+                            if (closed) {
+                                balance += pnl;
+                                trades.push({
+                                    ...position,
+                                    exitPrice: candle.close,
+                                    exitTime: candle.timestamp,
+                                    result,
+                                    pnl,
+                                    balance
+                                });
+                            }
+                            
+                            return !closed;
+                        });
+                        
+                        if (openPositions.length === 0) {
+                            try {
+                                const signal = this.alphaEngine.analyzeMarket(mockMarketData, 'BACKTEST');
+                                
+                                if (signal && signal.score >= minScore && balance >= riskPerTrade) {
+                                    openPositions.push({
+                                        entryIndex: i,
+                                        entryPrice: currentPrice.close,
+                                        entryTime: currentPrice.timestamp,
+                                        direction: signal.direction,
+                                        stopLoss: signal.stopLoss,
+                                        takeProfit: signal.takeProfit,
+                                        score: signal.score,
+                                        symbol
+                                    });
+                                }
+                            } catch (error) {
+                                // Ignora erros
+                            }
+                        }
+                        
+                        if (i % 100 === 0) {
+                            const progress = ((i / historicalData.length) * 100).toFixed(1);
+                            console.log(`⏳ Progresso: ${progress}% | Trades: ${trades.length} | Saldo: R$ ${balance.toFixed(2)}`);
+                        }
+                    }
+                    
+                    openPositions.forEach(position => {
+                        balance -= riskPerTrade;
+                        trades.push({
+                            ...position,
+                            exitPrice: historicalData[historicalData.length - 1].close,
+                            exitTime: historicalData[historicalData.length - 1].timestamp,
+                            result: 'TIMEOUT',
+                            pnl: -riskPerTrade,
+                            balance
+                        });
+                    });
+                    
+                    const stats = this.calculateBacktestStats(trades, initialBalance, balance);
+                    
+                    this.results = {
+                        config,
+                        trades,
+                        stats,
+                        finalBalance: balance,
+                        historicalDataPoints: historicalData.length
+                    };
+                    
+                    console.log('✅ Backtest concluído!');
+                    console.log(`   Total de trades: ${trades.length}`);
+                    console.log(`   Win Rate: ${stats.winRate.toFixed(2)}%`);
+                    console.log(`   Retorno: ${stats.totalReturn.toFixed(2)}%`);
+                    console.log(`   Saldo final: R$ ${balance.toFixed(2)}`);
+                    
+                    return this.results;
+                    
+                } catch (error) {
+                    console.error('❌ Erro no backtest:', error);
+                    throw error;
+                } finally {
+                    this.isRunning = false;
+                }
+            }
+
+            calculateBacktestStats(trades, initialBalance, finalBalance) {
+                if (trades.length === 0) {
+                    return {
+                        totalTrades: 0,
+                        wins: 0,
+                        losses: 0,
+                        timeouts: 0,
+                        winRate: 0,
+                        lossRate: 0,
+                        totalReturn: 0,
+                        maxDrawdown: 0,
+                        sharpeRatio: 0,
+                        profitFactor: 0,
+                        avgWin: 0,
+                        avgLoss: 0,
+                        largestWin: 0,
+                        largestLoss: 0
+                    };
+                }
+
+                const wins = trades.filter(t => t.result === 'WIN');
+                const losses = trades.filter(t => t.result === 'LOSS');
+                const timeouts = trades.filter(t => t.result === 'TIMEOUT');
+                
+                const totalPnL = trades.reduce((sum, t) => sum + t.pnl, 0);
+                const totalWins = wins.reduce((sum, t) => sum + t.pnl, 0);
+                const totalLosses = Math.abs(losses.reduce((sum, t) => sum + t.pnl, 0));
+                
+                let peak = initialBalance;
+                let maxDrawdown = 0;
+                
+                trades.forEach(trade => {
+                    if (trade.balance > peak) {
+                        peak = trade.balance;
+                    }
+                    const drawdown = ((peak - trade.balance) / peak) * 100;
+                    if (drawdown > maxDrawdown) {
+                        maxDrawdown = drawdown;
+                    }
+                });
+                
+                const returns = trades.map(t => (t.pnl / initialBalance) * 100);
+                const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
+                const stdDev = Math.sqrt(
+                    returns.reduce((sum, ret) => sum + Math.pow(ret - avgReturn, 2), 0) / returns.length
+                );
+                const sharpeRatio = stdDev !== 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0;
+                
+                return {
+                    totalTrades: trades.length,
+                    wins: wins.length,
+                    losses: losses.length,
+                    timeouts: timeouts.length,
+                    winRate: (wins.length / trades.length) * 100,
+                    lossRate: (losses.length / trades.length) * 100,
+                    totalReturn: ((finalBalance - initialBalance) / initialBalance) * 100,
+                    totalPnL,
+                    maxDrawdown,
+                    sharpeRatio,
+                    profitFactor: totalLosses !== 0 ? totalWins / totalLosses : 0,
+                    avgWin: wins.length > 0 ? totalWins / wins.length : 0,
+                    avgLoss: losses.length > 0 ? totalLosses / losses.length : 0,
+                    largestWin: wins.length > 0 ? Math.max(...wins.map(t => t.pnl)) : 0,
+                    largestLoss: losses.length > 0 ? Math.min(...losses.map(t => t.pnl)) : 0
+                };
+            }
+
+            getResults() {
+                return this.results;
+            }
+
+            exportResults() {
+                if (!this.results || !this.results.trades) {
+                    return null;
+                }
+
+                const { trades, stats } = this.results;
+                
+                let csv = 'Data/Hora,Símbolo,Direção,Preço Entrada,Stop Loss,Take Profit,Preço Saída,Resultado,P&L,Saldo,Score\n';
+                
+                trades.forEach(trade => {
+                    csv += [
+                        new Date(trade.entryTime).toLocaleString('pt-BR'),
+                        trade.symbol,
+                        trade.direction,
+                        trade.entryPrice.toFixed(2),
+                        trade.stopLoss.toFixed(2),
+                        trade.takeProfit.toFixed(2),
+                        trade.exitPrice.toFixed(2),
+                        trade.result,
+                        trade.pnl.toFixed(2),
+                        trade.balance.toFixed(2),
+                        trade.score
+                    ].join(',') + '\n';
+                });
+                
+                csv += '\n\nESTATÍSTICAS\n';
+                csv += `Total de Trades,${stats.totalTrades}\n`;
+                csv += `Vitórias,${stats.wins}\n`;
+                csv += `Derrotas,${stats.losses}\n`;
+                csv += `Win Rate,${stats.winRate.toFixed(2)}%\n`;
+                csv += `Retorno Total,${stats.totalReturn.toFixed(2)}%\n`;
+                csv += `Max Drawdown,${stats.maxDrawdown.toFixed(2)}%\n`;
+                csv += `Sharpe Ratio,${stats.sharpeRatio.toFixed(2)}\n`;
+                csv += `Profit Factor,${stats.profitFactor.toFixed(2)}\n`;
+                
+                return csv;
+            }
+        }
+        /* ========================================
            COMPONENTE APP PRINCIPAL
            ======================================== */
 
@@ -2093,8 +2825,10 @@
                     console.log('✅ AuditSystem inicializado e disponível globalmente');
                     
                     alphaEngineRef.current = new AlphaEngine(memoryDBRef.current);
-                    setAlphaEngine(alphaEngineRef.current);
-                    console.log('✅ AlphaEngine inicializado');
+                alphaEngineRef.current.marketDataRef = marketDataRef.current; // ✨ NOVO
+                alphaEngineRef.current.tpslOptimizer = new TPSLOptimizer(auditSystemRef.current); // ✨ NOVO
+                setAlphaEngine(alphaEngineRef.current);
+                console.log('✅ AlphaEngine inicializado com otimizador TP/SL');
                     
                     apiManagerRef.current = new APIConnectionManager();
                     setApiManager(apiManagerRef.current);
@@ -2113,6 +2847,12 @@
                     
                     console.log('🎉 Sistema totalmente inicializado!');
                     console.log('%c💡 DICA: Digite auditDiag() no console para diagnóstico rápido', 'color: #00ff88; font-weight: bold;');
+                    // Aprende a cada 5 minutos
+                setInterval(() => {
+                    if (alphaEngineRef.current && alphaEngineRef.current.tpslOptimizer) {
+                        alphaEngineRef.current.tpslOptimizer.learnFromResults();
+                    }
+                }, 5 * 60 * 1000);
                     
                     // Cleanup
                     return () => {
@@ -2595,7 +3335,13 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                                 showNotification={showNotification}
                             />
                         )}
-                        
+                        {currentView === 'backtest' && (
+                            <BacktestView 
+                                alphaEngine={alphaEngine}
+                                memoryDB={memoryDB}
+                                formatBRL={formatBRL}
+                            />
+                        )}
                         {currentView === 'settings' && (
                             <Settings 
                                 minScore={minScore}
@@ -2620,6 +3366,7 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                 { id: 'dashboard', label: 'Dashboard', icon: '📊' },
                 { id: 'robot', label: 'Painel do Robô', icon: '🤖' },
                 { id: 'audit', label: 'Auditoria', icon: '📋' },
+                { id: 'backtest', label: 'Backtesting', icon: '🔬' },
                 { id: 'performance', label: 'Performance', icon: '📈' },
                 { id: 'ml-engine', label: 'ML Engine', icon: '🧠' },
                 { id: 'connections', label: 'Conexões', icon: '🔗' },
@@ -3850,7 +4597,288 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                 </div>
             );
         }
+function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
+            const [config, setConfig] = useState({
+                startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                endDate: new Date().toISOString().split('T')[0],
+                initialBalance: 10000,
+                riskPerTrade: 100,
+                minScore: 60,
+                timeframe: 'M5'
+            });
+            const [results, setResults] = useState(null);
+            const [isRunning, setIsRunning] = useState(false);
+            const [progress, setProgress] = useState(0);
+            const backtestEngineRef = useRef(null);
 
+            useEffect(() => {
+                if (alphaEngine && memoryDB) {
+                    backtestEngineRef.current = new BacktestEngine(alphaEngine, memoryDB);
+                }
+            }, [alphaEngine, memoryDB]);
+
+            const handleRunBacktest = async () => {
+                if (!backtestEngineRef.current) return;
+                
+                setIsRunning(true);
+                setResults(null);
+                setProgress(0);
+                
+                try {
+                    const result = await backtestEngineRef.current.runBacktest(config);
+                    setResults(result);
+                } catch (error) {
+                    alert(`Erro no backtest: ${error.message}`);
+                } finally {
+                    setIsRunning(false);
+                    setProgress(100);
+                }
+            };
+
+            const handleExport = () => {
+                if (!backtestEngineRef.current) return;
+                
+                const csv = backtestEngineRef.current.exportResults();
+                if (csv) {
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `backtest_${new Date().toISOString().split('T')[0]}.csv`;
+                    link.click();
+                }
+            };
+
+            return (
+                <div>
+                    <div className="warning-box">
+                        🔬 <strong>Backtesting:</strong> Teste suas estratégias com dados históricos antes de operar com dinheiro real.
+                    </div>
+
+                    <div className="card">
+                        <h3>⚙️ Configuração do Backtest</h3>
+                        
+                        <div className="grid">
+                            <div className="form-group">
+                                <label className="form-label">Data Inicial</label>
+                                <input 
+                                    type="date"
+                                    className="form-input"
+                                    value={config.startDate}
+                                    onChange={(e) => setConfig({...config, startDate: e.target.value})}
+                                    disabled={isRunning}
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Data Final</label>
+                                <input 
+                                    type="date"
+                                    className="form-input"
+                                    value={config.endDate}
+                                    onChange={(e) => setConfig({...config, endDate: e.target.value})}
+                                    disabled={isRunning}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid">
+                            <div className="form-group">
+                                <label className="form-label">Saldo Inicial (R$)</label>
+                                <input 
+                                    type="number"
+                                    className="form-input"
+                                    value={config.initialBalance}
+                                    onChange={(e) => setConfig({...config, initialBalance: Number(e.target.value)})}
+                                    disabled={isRunning}
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Risco por Trade (R$)</label>
+                                <input 
+                                    type="number"
+                                    className="form-input"
+                                    value={config.riskPerTrade}
+                                    onChange={(e) => setConfig({...config, riskPerTrade: Number(e.target.value)})}
+                                    disabled={isRunning}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Score Mínimo: {config.minScore}%</label>
+                            <input 
+                                type="range"
+                                min="30"
+                                max="90"
+                                value={config.minScore}
+                                onChange={(e) => setConfig({...config, minScore: Number(e.target.value)})}
+                                className="form-input"
+                                disabled={isRunning}
+                            />
+                        </div>
+
+                        <button 
+                            className="btn btn-primary"
+                            onClick={handleRunBacktest}
+                            disabled={isRunning}
+                            style={{ width: '100%', fontSize: '16px', padding: '15px' }}
+                        >
+                            {isRunning ? '⏳ Executando Backtest...' : '🚀 Iniciar Backtest'}
+                        </button>
+
+                        {isRunning && (
+                            <div style={{ marginTop: '20px' }}>
+                                <div style={{ 
+                                    height: '8px', 
+                                    background: 'rgba(255,255,255,0.1)', 
+                                    borderRadius: '4px',
+                                    overflow: 'hidden'
+                                }}>
+                                    <div style={{
+                                        height: '100%',
+                                        width: `${progress}%`,
+                                        background: '#00ff88',
+                                        transition: 'width 0.3s ease'
+                                    }}></div>
+                                </div>
+                                <div style={{ textAlign: 'center', marginTop: '10px', color: '#a0a0a0' }}>
+                                    Processando dados históricos...
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {results && results.stats && (
+                        <>
+                            <div className="card">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                    <h3>📊 Resultados do Backtest</h3>
+                                    <button className="btn btn-primary" onClick={handleExport}>
+                                        📥 Exportar CSV
+                                    </button>
+                                </div>
+
+                                <div className="metric-grid">
+                                    <div className="metric-card">
+                                        <div className="metric-value">{results.stats.totalTrades}</div>
+                                        <div className="metric-label">Total de Trades</div>
+                                    </div>
+                                    <div className="metric-card">
+                                        <div className="metric-value" style={{ color: '#00ff88' }}>{results.stats.wins}</div>
+                                        <div className="metric-label">Vitórias</div>
+                                    </div>
+                                    <div className="metric-card">
+                                        <div className="metric-value" style={{ color: '#ff4757' }}>{results.stats.losses}</div>
+                                        <div className="metric-label">Derrotas</div>
+                                    </div>
+                                    <div className="metric-card">
+                                        <div className="metric-value">{results.stats.winRate.toFixed(1)}%</div>
+                                        <div className="metric-label">Win Rate</div>
+                                    </div>
+                                </div>
+
+                                <div className="metric-grid" style={{ marginTop: '20px' }}>
+                                    <div className="metric-card">
+                                        <div className="metric-value" style={{ 
+                                            color: results.stats.totalReturn >= 0 ? '#00ff88' : '#ff4757',
+                                            fontSize: '28px'
+                                        }}>
+                                            {results.stats.totalReturn >= 0 ? '+' : ''}{results.stats.totalReturn.toFixed(2)}%
+                                        </div>
+                                        <div className="metric-label">Retorno Total</div>
+                                    </div>
+                                    <div className="metric-card">
+                                        <div className="metric-value" style={{ color: '#ff4757' }}>
+                                            {results.stats.maxDrawdown.toFixed(2)}%
+                                        </div>
+                                        <div className="metric-label">Max Drawdown</div>
+                                    </div>
+                                    <div className="metric-card">
+                                        <div className="metric-value">{results.stats.sharpeRatio.toFixed(2)}</div>
+                                        <div className="metric-label">Sharpe Ratio</div>
+                                    </div>
+                                    <div className="metric-card">
+                                        <div className="metric-value">{results.stats.profitFactor.toFixed(2)}</div>
+                                        <div className="metric-label">Profit Factor</div>
+                                    </div>
+                                </div>
+
+                                <div style={{ marginTop: '30px', padding: '20px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
+                                    <h4 style={{ marginBottom: '15px', color: '#00ff88' }}>💰 Resumo Financeiro</h4>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', fontSize: '14px' }}>
+                                        <div>
+                                            <strong>Saldo Inicial:</strong>
+                                            <div style={{ color: '#00ff88', fontSize: '18px', marginTop: '5px' }}>
+                                                {formatBRL(config.initialBalance)}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <strong>Saldo Final:</strong>
+                                            <div style={{ 
+                                                color: results.finalBalance >= config.initialBalance ? '#00ff88' : '#ff4757',
+                                                fontSize: '18px',
+                                                marginTop: '5px'
+                                            }}>
+                                                {formatBRL(results.finalBalance)}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <strong>Lucro Médio:</strong>
+                                            <div style={{ color: '#00ff88', marginTop: '5px' }}>
+                                                {formatBRL(results.stats.avgWin)}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <strong>Perda Média:</strong>
+                                            <div style={{ color: '#ff4757', marginTop: '5px' }}>
+                                                {formatBRL(results.stats.avgLoss)}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="card">
+                                <h3>📈 Histórico de Trades</h3>
+                                <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                                    {results.trades.slice(0, 50).map((trade, idx) => (
+                                        <div key={idx} style={{
+                                            padding: '15px',
+                                            margin: '10px 0',
+                                            border: '1px solid rgba(255,255,255,0.1)',
+                                            borderRadius: '8px',
+                                            background: trade.result === 'WIN' ? 'rgba(0,255,136,0.05)' : 
+                                                       trade.result === 'LOSS' ? 'rgba(255,71,87,0.05)' : 'rgba(255,255,255,0.02)'
+                                        }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                                <strong>{trade.direction} @ {formatBRL(trade.entryPrice)}</strong>
+                                                <span style={{ 
+                                                    color: trade.result === 'WIN' ? '#00ff88' : trade.result === 'LOSS' ? '#ff4757' : '#ffc107',
+                                                    fontWeight: 'bold'
+                                                }}>
+                                                    {trade.result === 'WIN' ? '✅' : trade.result === 'LOSS' ? '❌' : '⏱️'} {trade.result}
+                                                </span>
+                                            </div>
+                                            <div style={{ fontSize: '13px', color: '#a0a0a0' }}>
+                                                <div>Entrada: {new Date(trade.entryTime).toLocaleString('pt-BR')}</div>
+                                                <div>Saída: {formatBRL(trade.exitPrice)} | P&L: {formatBRL(trade.pnl)}</div>
+                                                <div>Saldo após: {formatBRL(trade.balance)}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                {results.trades.length > 50 && (
+                                    <div style={{ textAlign: 'center', color: '#a0a0a0', marginTop: '15px' }}>
+                                        Mostrando 50 de {results.trades.length} trades. Exporte para ver todos.
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    )}
+                </div>
+            );
+        }
         function Settings({ minScore, setMinScore }) {
             return (
                 <div>
@@ -3945,6 +4973,7 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
     </script>
 </body>
 </html>
+
 
 
 
