@@ -2180,11 +2180,15 @@ class TPSLOptimizer {
             constructor(memoryDB) {
                 this.memoryDB = memoryDB;
                 this.weights = {
-                    rsi: 0.20,
-                    macd: 0.15,
-                    bollinger: 0.15,
-                    stochastic_events: 0.20,
-                    stochastic_divergence: 0.30
+                    rsi: 0.12,
+                    macd: 0.10,
+                    bollinger: 0.10,
+                    stochastic_events: 0.15,
+                    stochastic_divergence: 0.20,
+                    volume: 0.10,        // ✨ NOVO
+                    obv: 0.08,           // ✨ NOVO
+                    ichimoku: 0.10,      // ✨ NOVO
+                    vwap: 0.05           // ✨ NOVO
                 };
                 this.performance = {
                     totalSignals: 0,
@@ -2320,7 +2324,63 @@ class TPSLOptimizer {
                     strength: Math.random() * 0.5 + 0.5
                 };
             }
+calculateVolumeScore(volume) {
+                let score = 0;
+                
+                if (volume.volumeTrend === 'increasing') score += 0.4;
+                else if (volume.volumeTrend === 'decreasing') score -= 0.2;
+                
+                if (volume.isAnomalous) score += 0.5;
+                
+                score += volume.volumeStrength * 0.3;
+                
+                return Math.max(-1, Math.min(1, score));
+            }
 
+            calculateOBVScore(obv) {
+                let score = 0;
+                
+                if (obv.trend === 'bullish') score += 0.6;
+                else if (obv.trend === 'bearish') score -= 0.6;
+                
+                if (obv.divergence) {
+                    if (obv.signal === 'hidden_bullish') score += 0.8;
+                    else if (obv.signal === 'hidden_bearish') score -= 0.8;
+                }
+                
+                score += obv.strength * (obv.trend === 'bullish' ? 0.4 : -0.4);
+                
+                return Math.max(-1, Math.min(1, score));
+            }
+
+            calculateIchimokuScore(ichimoku) {
+                let score = 0;
+                
+                if (ichimoku.signal === 'strong_bullish') score += 0.9;
+                else if (ichimoku.signal === 'bullish') score += 0.6;
+                else if (ichimoku.signal === 'strong_bearish') score -= 0.9;
+                else if (ichimoku.signal === 'bearish') score -= 0.6;
+                else if (ichimoku.signal === 'inside_cloud') score += 0;
+                
+                if (ichimoku.tkCross === 'bullish') score += 0.3;
+                else if (ichimoku.tkCross === 'bearish') score -= 0.3;
+                
+                if (ichimoku.chikouConfirmation && score > 0) score += 0.2;
+                else if (!ichimoku.chikouConfirmation && score < 0) score -= 0.2;
+                
+                return Math.max(-1, Math.min(1, score));
+            }
+
+            calculateVWAPScore(vwap) {
+                let score = 0;
+                
+                if (vwap.signal === 'above_vwap') score += 0.5;
+                else if (vwap.signal === 'below_vwap') score -= 0.5;
+                
+                score += vwap.strength * (vwap.deviation > 0 ? 0.3 : -0.3);
+                
+                return Math.max(-1, Math.min(1, score));
+            }
             generateSignal(features, currentPrice, dataSource) {
                 let score = 0;
                 const contributors = [];
@@ -2345,9 +2405,21 @@ class TPSLOptimizer {
                             if (features.stochastic.divergence.present) {
                                 indicatorScore = features.stochastic.divergence.type === 'bullish' ? 0.8 : -0.8;
                                 indicatorScore *= features.stochastic.divergence.strength;
-                            }
+                        case 'volume':
+                            indicatorScore = features.volume.score;
                             break;
-                    }
+                        case 'obv':
+                            indicatorScore = features.obv.score;
+                            break;
+                        case 'ichimoku':
+                            indicatorScore = features.ichimoku.score;
+                            break;
+                        case 'vwap':
+                            indicatorScore = features.vwap.score;
+                            break;
+                            }
+                          
+                    
                     
                     score += indicatorScore * this.weights[indicator];
                     if (Math.abs(indicatorScore) > 0.1) {
@@ -2450,7 +2522,235 @@ class TPSLOptimizer {
                 this.notifyChange(); // NOVO: Notificar mudanças na performance
             }
         }
+/* ========================================
+           SISTEMA DE NOTIFICAÇÕES TELEGRAM
+           ======================================== */
 
+        class TelegramNotifier {
+            constructor() {
+                this.botToken = null;
+                this.chatId = null;
+                this.enabled = false;
+                this.queue = [];
+                this.isSending = false;
+                this.loadConfig();
+            }
+
+            loadConfig() {
+                try {
+                    const saved = localStorage.getItem('telegram_config');
+                    if (saved) {
+                        const config = JSON.parse(saved);
+                        this.botToken = config.botToken;
+                        this.chatId = config.chatId;
+                        this.enabled = config.enabled || false;
+                        console.log('✅ Configuração Telegram carregada');
+                    }
+                } catch (error) {
+                    console.error('Erro ao carregar config Telegram:', error);
+                }
+            }
+
+            saveConfig() {
+                try {
+                    const config = {
+                        botToken: this.botToken,
+                        chatId: this.chatId,
+                        enabled: this.enabled
+                    };
+                    localStorage.setItem('telegram_config', JSON.stringify(config));
+                } catch (error) {
+                    console.error('Erro ao salvar config Telegram:', error);
+                }
+            }
+
+            configure(botToken, chatId) {
+                this.botToken = botToken;
+                this.chatId = chatId;
+                this.saveConfig();
+            }
+
+            enable() {
+                if (!this.botToken || !this.chatId) {
+                    throw new Error('Configure o Bot Token e Chat ID primeiro');
+                }
+                this.enabled = true;
+                this.saveConfig();
+            }
+
+            disable() {
+                this.enabled = false;
+                this.saveConfig();
+            }
+
+            async testConnection() {
+                if (!this.botToken || !this.chatId) {
+                    return { success: false, message: 'Configure o Bot Token e Chat ID' };
+                }
+
+                try {
+                    const response = await this.sendMessage('🤖 Teste de conexão bem-sucedido!');
+                    return { success: true, message: 'Mensagem enviada com sucesso!' };
+                } catch (error) {
+                    return { success: false, message: error.message };
+                }
+            }
+
+            async sendMessage(text, parseMode = 'HTML') {
+                if (!this.enabled || !this.botToken || !this.chatId) {
+                    return;
+                }
+
+                this.queue.push({ text, parseMode });
+                
+                if (!this.isSending) {
+                    this.processQueue();
+                }
+            }
+
+            async processQueue() {
+                if (this.queue.length === 0) {
+                    this.isSending = false;
+                    return;
+                }
+
+                this.isSending = true;
+                const message = this.queue.shift();
+
+                try {
+                    const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            chat_id: this.chatId,
+                            text: message.text,
+                            parse_mode: message.parseMode
+                        })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (!data.ok) {
+                        console.error('Erro ao enviar mensagem Telegram:', data.description);
+                    }
+
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    this.processQueue();
+
+                } catch (error) {
+                    console.error('Erro ao enviar mensagem:', error);
+                    this.isSending = false;
+                }
+            }
+
+            formatSignalMessage(signal) {
+                const emoji = signal.direction === 'BUY' ? '🟢' : '🔴';
+                const dataSource = signal.dataSource === 'REAL' ? '📡 Dados Reais' : '🔮 Simulação';
+                
+                let message = `${emoji} <b>NOVO SINAL</b>\n\n`;
+                message += `<b>Ativo:</b> ${signal.symbol}\n`;
+                message += `<b>Direção:</b> ${signal.direction}\n`;
+                message += `<b>Score:</b> ${signal.score}%\n`;
+                message += `<b>Preço:</b> R$ ${signal.price.toFixed(2)}\n`;
+                message += `<b>Stop Loss:</b> R$ ${signal.stopLoss.toFixed(2)}\n`;
+                message += `<b>Take Profit:</b> R$ ${signal.takeProfit.toFixed(2)}\n`;
+                message += `<b>Timeframe:</b> ${signal.timeframe}\n`;
+                message += `<b>Fonte:</b> ${dataSource}\n`;
+                
+                if (signal.divergence) {
+                    message += `\n⚡ <b>Divergência ${signal.divergence.type}</b>`;
+                }
+                
+                const entryTime = new Date(signal.entryTime);
+                message += `\n⏰ <b>Entrada:</b> ${entryTime.toLocaleTimeString('pt-BR')}`;
+                
+                return message;
+            }
+
+            formatExecutionMessage(signal, executionResult) {
+                let message = `🤖 <b>ORDEM EXECUTADA</b>\n\n`;
+                message += `<b>Direção:</b> ${signal.direction}\n`;
+                message += `<b>Símbolo:</b> ${signal.symbol}\n`;
+                message += `<b>Preço Executado:</b> R$ ${executionResult.executedPrice.toFixed(2)}\n`;
+                message += `<b>Quantidade:</b> ${executionResult.executedQty}\n`;
+                message += `<b>Order ID:</b> ${executionResult.orderId}\n`;
+                
+                if (executionResult.simulated) {
+                    message += `\n⚠️ <i>Ordem simulada</i>`;
+                }
+                
+                return message;
+            }
+
+            formatResultMessage(signal, result, pnl) {
+                let emoji = '';
+                let title = '';
+                
+                if (result === 'ACERTO') {
+                    emoji = '✅';
+                    title = 'TAKE PROFIT ATINGIDO';
+                } else if (result === 'ERRO') {
+                    emoji = '❌';
+                    title = 'STOP LOSS ATINGIDO';
+                } else if (result === 'EXPIRADO') {
+                    emoji = '⏱️';
+                    title = 'SINAL EXPIRADO';
+                }
+                
+                let message = `${emoji} <b>${title}</b>\n\n`;
+                message += `<b>Símbolo:</b> ${signal.symbol}\n`;
+                message += `<b>Direção:</b> ${signal.direction}\n`;
+                message += `<b>P&L:</b> R$ ${pnl.toFixed(2)}\n`;
+                
+                if (signal.finalPrice) {
+                    message += `<b>Preço Final:</b> R$ ${signal.finalPrice.toFixed(2)}\n`;
+                }
+                
+                return message;
+            }
+
+            async notifySignal(signal) {
+                if (!this.enabled) return;
+                const message = this.formatSignalMessage(signal);
+                await this.sendMessage(message);
+            }
+
+            async notifyExecution(signal, executionResult) {
+                if (!this.enabled) return;
+                const message = this.formatExecutionMessage(signal, executionResult);
+                await this.sendMessage(message);
+            }
+
+            async notifyResult(signal, result, pnl) {
+                if (!this.enabled) return;
+                const message = this.formatResultMessage(signal, result, pnl);
+                await this.sendMessage(message);
+            }
+
+            async notifyDailyReport(stats) {
+                if (!this.enabled) return;
+                
+                let message = `📊 <b>RELATÓRIO DIÁRIO</b>\n\n`;
+                message += `<b>Total de Trades:</b> ${stats.totalTrades}\n`;
+                message += `<b>Vitórias:</b> ${stats.wins} (${stats.winRate.toFixed(1)}%)\n`;
+                message += `<b>Derrotas:</b> ${stats.losses}\n`;
+                message += `<b>P&L Total:</b> R$ ${stats.totalPnL.toFixed(2)}\n`;
+                
+                await this.sendMessage(message);
+            }
+
+            isConfigured() {
+                return this.botToken && this.chatId;
+            }
+
+            isEnabled() {
+                return this.enabled;
+            }
+        }
         /* ========================================
            SISTEMA DE BACKTESTING
            ======================================== */
@@ -2837,6 +3137,33 @@ class TPSLOptimizer {
                     orderExecutorRef.current = new OrderExecutionManager(apiManagerRef.current);
                     setOrderExecutor(orderExecutorRef.current);
                     console.log('✅ OrderExecutor inicializado');
+
+                    // ✨ NOVO: Telegram Notifier
+                const telegramNotifier = new TelegramNotifier();
+                window.telegramNotifier = telegramNotifier;
+                console.log('✅ TelegramNotifier inicializado');
+
+                // Relatório diário às 23:59
+                const scheduleDailyReport = () => {
+                    const now = new Date();
+                    const tonight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0);
+                    
+                    if (tonight <= now) {
+                        tonight.setDate(tonight.getDate() + 1);
+                    }
+                    
+                    const msUntilReport = tonight - now;
+                    
+                    setTimeout(async () => {
+                        if (memoryDBRef.current && telegramNotifier.isEnabled()) {
+                            const stats = await memoryDBRef.current.getStatistics();
+                            await telegramNotifier.notifyDailyReport(stats);
+                        }
+                        scheduleDailyReport();
+                    }, msUntilReport);
+                };
+
+                scheduleDailyReport();
                     
                     // NOVO: Registrar listeners para atualizações
                     const updateCallback = () => setUpdateTrigger(prev => prev + 1);
@@ -2965,6 +3292,10 @@ class TPSLOptimizer {
                             showNotification(`Novo sinal ${signal.direction} - Score: ${signal.score}%`);
                             playAlert();
                             scheduleSignalVerification(signal);
+                        // ✨ NOVO: Notifica via Telegram
+                            if (window.telegramNotifier && window.telegramNotifier.isEnabled()) {
+                                window.telegramNotifier.notifySignal(signal);
+                            }
                             
                             if (mode === 'auto' && orderExecutorRef.current) {
                                 const executionResult = await orderExecutorRef.current.executeSignalAuto(
@@ -2982,6 +3313,10 @@ class TPSLOptimizer {
                                     
                                     signal.executed = true;
                                     signal.executionDetails = executionResult;
+                                    // ✨ NOVO: Notifica execução
+                                if (window.telegramNotifier && window.telegramNotifier.isEnabled()) {
+                                    window.telegramNotifier.notifyExecution(signal, executionResult);
+                                }
                                     
                                     setSignals(prev => prev.map(s => 
                                         s.id === signal.id ? signal : s
@@ -3161,7 +3496,10 @@ class TPSLOptimizer {
                             ? `❌ Stop atingido: ${formatBRL(pnl)}`
                             : `⏱️ Sinal expirado`
                     );
-
+                         // ✨ NOVO: Notifica resultado
+                    if (window.telegramNotifier && window.telegramNotifier.isEnabled()) {
+                        window.telegramNotifier.notifyResult(signal, result, pnl);
+                    }
                     verificationTimers.current.delete(signal.id);
                 } catch (error) {
                     console.log('Erro na verificação:', error);
@@ -3342,6 +3680,20 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                                 formatBRL={formatBRL}
                             />
                         )}
+                        {currentView === 'advanced-metrics' && (
+                            <AdvancedMetrics 
+                                auditSystem={auditSystem}
+                                alphaEngine={alphaEngine}
+                                memoryDB={memoryDB}
+                                formatBRL={formatBRL}
+                            />
+                        )}
+                        {currentView === 'telegram' && (
+                            <TelegramConfig 
+                                telegramNotifier={window.telegramNotifier}
+                                showNotification={showNotification}
+                            />
+                        )}
                         {currentView === 'settings' && (
                             <Settings 
                                 minScore={minScore}
@@ -3367,6 +3719,8 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                 { id: 'robot', label: 'Painel do Robô', icon: '🤖' },
                 { id: 'audit', label: 'Auditoria', icon: '📋' },
                 { id: 'backtest', label: 'Backtesting', icon: '🔬' },
+                { id: 'advanced-metrics', label: 'Métricas Avançadas', icon: '📈' },
+                { id: 'telegram', label: 'Telegram', icon: '📱' },
                 { id: 'performance', label: 'Performance', icon: '📈' },
                 { id: 'ml-engine', label: 'ML Engine', icon: '🧠' },
                 { id: 'connections', label: 'Conexões', icon: '🔗' },
@@ -4879,6 +5233,712 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
                 </div>
             );
         }
+
+        /* ========================================
+           DASHBOARD DE MÉTRICAS AVANÇADAS
+           ======================================== */
+
+        function AdvancedMetrics({ auditSystem, alphaEngine, memoryDB, formatBRL }) {
+            const [metrics, setMetrics] = useState(null);
+            const [timeRange, setTimeRange] = useState('7d');
+
+            useEffect(() => {
+                const calculateMetrics = async () => {
+                    if (!auditSystem || !alphaEngine || !memoryDB) return;
+
+                    const logs = auditSystem.getRecentLogs(200);
+                    const completedLogs = logs.filter(l => l.outcome && l.outcome !== 'PENDENTE');
+                    
+                    if (completedLogs.length === 0) {
+                        setMetrics(null);
+                        return;
+                    }
+
+                    const cutoffDate = new Date();
+                    if (timeRange === '24h') cutoffDate.setHours(cutoffDate.getHours() - 24);
+                    else if (timeRange === '7d') cutoffDate.setDate(cutoffDate.getDate() - 7);
+                    else if (timeRange === '30d') cutoffDate.setDate(cutoffDate.getDate() - 30);
+                    
+                    const filteredLogs = completedLogs.filter(l => 
+                        new Date(l.generatedAt) >= cutoffDate
+                    );
+
+                    if (filteredLogs.length === 0) {
+                        setMetrics(null);
+                        return;
+                    }
+
+                    const wins = filteredLogs.filter(l => l.outcome === 'ACERTO');
+                    const losses = filteredLogs.filter(l => l.outcome === 'ERRO');
+                    const expired = filteredLogs.filter(l => l.outcome === 'EXPIRADO');
+
+                    const totalPnL = filteredLogs.reduce((sum, l) => sum + (l.prices.finalPnL || 0), 0);
+                    const winRate = (wins.length / filteredLogs.length) * 100;
+                    const lossRate = (losses.length / filteredLogs.length) * 100;
+                    const expiredRate = (expired.length / filteredLogs.length) * 100;
+
+                    const totalWins = wins.reduce((sum, l) => sum + (l.prices.finalPnL || 0), 0);
+                    const totalLosses = Math.abs(losses.reduce((sum, l) => sum + (l.prices.finalPnL || 0), 0));
+                    const profitFactor = totalLosses > 0 ? totalWins / totalLosses : 0;
+
+                    const avgWin = wins.length > 0 ? totalWins / wins.length : 0;
+                    const avgLoss = losses.length > 0 ? totalLosses / losses.length : 0;
+                    const expectancy = (winRate / 100 * avgWin) - (lossRate / 100 * avgLoss);
+
+                    const kellyCriterion = winRate > 0 ? 
+                        (winRate / 100 - (lossRate / 100)) / (avgWin / avgLoss || 1) : 0;
+
+                    const returns = filteredLogs.map(l => (l.prices.finalPnL || 0) / 100);
+                    const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
+                    const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length;
+                    const stdDev = Math.sqrt(variance);
+                    const sharpeRatio = stdDev !== 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0;
+
+                    let peak = 0;
+                    let maxDrawdown = 0;
+                    let runningPnL = 0;
+
+                    filteredLogs.forEach(log => {
+                        runningPnL += log.prices.finalPnL || 0;
+                        if (runningPnL > peak) {
+                            peak = runningPnL;
+                        } else {
+                            const currentDrawdown = peak - runningPnL;
+                            if (currentDrawdown > maxDrawdown) {
+                                maxDrawdown = currentDrawdown;
+                            }
+                        }
+                    });
+
+                    let currentStreak = 0;
+                    let maxWinStreak = 0;
+                    let maxLossStreak = 0;
+                    let lastOutcome = null;
+
+                    filteredLogs.forEach(log => {
+                        if (log.outcome === 'ACERTO') {
+                            if (lastOutcome === 'ACERTO') {
+                                currentStreak++;
+                            } else {
+                                currentStreak = 1;
+                            }
+                            if (currentStreak > maxWinStreak) maxWinStreak = currentStreak;
+                        } else if (log.outcome === 'ERRO') {
+                            if (lastOutcome === 'ERRO') {
+                                currentStreak++;
+                            } else {
+                                currentStreak = 1;
+                            }
+                            if (currentStreak > maxLossStreak) maxLossStreak = currentStreak;
+                        } else {
+                            currentStreak = 0;
+                        }
+                        lastOutcome = log.outcome;
+                    });
+
+                    const recoveryFactor = maxDrawdown > 0 ? totalPnL / maxDrawdown : 0;
+
+                    const durations = filteredLogs
+                        .filter(l => l.outcomeTime)
+                        .map(l => (new Date(l.outcomeTime) - new Date(l.generatedAt)) / 60000);
+                    const avgDuration = durations.length > 0 ? 
+                        durations.reduce((a, b) => a + b, 0) / durations.length : 0;
+
+                    const hourlyPerformance = {};
+                    for (let h = 0; h < 24; h++) {
+                        const hourLogs = filteredLogs.filter(l => l.hourOfDay === h);
+                        if (hourLogs.length > 0) {
+                            const hourWins = hourLogs.filter(l => l.outcome === 'ACERTO').length;
+                            const hourPnL = hourLogs.reduce((sum, l) => sum + (l.prices.finalPnL || 0), 0);
+                            hourlyPerformance[h] = {
+                                trades: hourLogs.length,
+                                winRate: (hourWins / hourLogs.length) * 100,
+                                pnl: hourPnL
+                            };
+                        }
+                    }
+
+                    const bestHour = Object.entries(hourlyPerformance)
+                        .sort((a, b) => b[1].pnl - a[1].pnl)[0];
+                    const worstHour = Object.entries(hourlyPerformance)
+                        .sort((a, b) => a[1].pnl - b[1].pnl)[0];
+
+                    const scorePerformance = {};
+                    ['90-100', '80-89', '70-79', '60-69', '50-59'].forEach(range => {
+                        const rangeLogs = filteredLogs.filter(l => l.scoreRange === range);
+                        if (rangeLogs.length > 0) {
+                            const rangeWins = rangeLogs.filter(l => l.outcome === 'ACERTO').length;
+                            scorePerformance[range] = {
+                                trades: rangeLogs.length,
+                                winRate: (rangeWins / rangeLogs.length) * 100,
+                                pnl: rangeLogs.reduce((sum, l) => sum + (l.prices.finalPnL || 0), 0)
+                            };
+                        }
+                    });
+
+                    setMetrics({
+                        totalTrades: filteredLogs.length,
+                        wins: wins.length,
+                        losses: losses.length,
+                        expired: expired.length,
+                        winRate,
+                        lossRate,
+                        expiredRate,
+                        totalPnL,
+                        profitFactor,
+                        expectancy,
+                        kellyCriterion,
+                        sharpeRatio,
+                        maxDrawdown,
+                        recoveryFactor,
+                        avgWin,
+                        avgLoss,
+                        avgDuration,
+                        maxWinStreak,
+                        maxLossStreak,
+                        hourlyPerformance,
+                        bestHour: bestHour ? { hour: bestHour[0], data: bestHour[1] } : null,
+                        worstHour: worstHour ? { hour: worstHour[0], data: worstHour[1] } : null,
+                        scorePerformance
+                    });
+                };
+
+                calculateMetrics();
+                const interval = setInterval(calculateMetrics, 10000);
+                return () => clearInterval(interval);
+            }, [auditSystem, alphaEngine, memoryDB, timeRange]);
+
+            if (!metrics) {
+                return (
+                    <div className="card">
+                        <h3>📊 Métricas Avançadas</h3>
+                        <div style={{ textAlign: 'center', padding: '40px', color: '#a0a0a0' }}>
+                            Dados insuficientes. Execute alguns sinais primeiro.
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div>
+                    <div className="card">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h3>📊 Métricas Avançadas</h3>
+                            <div className="mode-selector" style={{ width: 'auto' }}>
+                                <div 
+                                    className={`mode-btn ${timeRange === '24h' ? 'active' : ''}`}
+                                    onClick={() => setTimeRange('24h')}
+                                    style={{ padding: '8px 16px', fontSize: '14px' }}
+                                >
+                                    24h
+                                </div>
+                                <div 
+                                    className={`mode-btn ${timeRange === '7d' ? 'active' : ''}`}
+                                    onClick={() => setTimeRange('7d')}
+                                    style={{ padding: '8px 16px', fontSize: '14px' }}
+                                >
+                                    7 dias
+                                </div>
+                                <div 
+                                    className={`mode-btn ${timeRange === '30d' ? 'active' : ''}`}
+                                    onClick={() => setTimeRange('30d')}
+                                    style={{ padding: '8px 16px', fontSize: '14px' }}
+                                >
+                                    30 dias
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="metric-grid">
+                            <div className="metric-card">
+                                <div className="metric-value">{metrics.totalTrades}</div>
+                                <div className="metric-label">Total de Trades</div>
+                            </div>
+                            <div className="metric-card">
+                                <div className="metric-value" style={{ color: metrics.winRate >= 50 ? '#00ff88' : '#ff4757' }}>
+                                    {metrics.winRate.toFixed(1)}%
+                                </div>
+                                <div className="metric-label">Win Rate</div>
+                            </div>
+                            <div className="metric-card">
+                                <div className="metric-value" style={{ 
+                                    color: metrics.totalPnL >= 0 ? '#00ff88' : '#ff4757',
+                                    fontSize: '24px'
+                                }}>
+                                    {formatBRL(metrics.totalPnL)}
+                                </div>
+                                <div className="metric-label">P&L Total</div>
+                            </div>
+                            <div className="metric-card">
+                                <div className="metric-value" style={{ 
+                                    color: metrics.profitFactor >= 1.5 ? '#00ff88' : metrics.profitFactor >= 1 ? '#ffc107' : '#ff4757'
+                                }}>
+                                    {metrics.profitFactor.toFixed(2)}
+                                </div>
+                                <div className="metric-label">Profit Factor</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid">
+                        <div className="card">
+                            <h3>🎯 Métricas de Risco</h3>
+                            <div style={{ padding: '15px' }}>
+                                <div style={{ marginBottom: '20px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <strong>Sharpe Ratio</strong>
+                                        <span style={{ 
+                                            color: metrics.sharpeRatio >= 1.5 ? '#00ff88' : 
+                                                   metrics.sharpeRatio >= 1 ? '#ffc107' : '#ff4757',
+                                            fontSize: '18px',
+                                            fontWeight: 'bold'
+                                        }}>
+                                            {metrics.sharpeRatio.toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#a0a0a0' }}>
+                                        {metrics.sharpeRatio >= 2 ? '🌟 Excelente' : 
+                                         metrics.sharpeRatio >= 1.5 ? '✅ Muito Bom' :
+                                         metrics.sharpeRatio >= 1 ? '👍 Bom' :
+                                         metrics.sharpeRatio >= 0.5 ? '⚠️ Regular' : '❌ Ruim'}
+                                    </div>
+                                </div>
+
+                                <div style={{ marginBottom: '20px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <strong>Max Drawdown</strong>
+                                        <span style={{ color: '#ff4757', fontSize: '18px', fontWeight: 'bold' }}>
+                                            {formatBRL(metrics.maxDrawdown)}
+                                        </span>
+                                    </div>
+                                    <div style={{ 
+                                        height: '8px', 
+                                        background: 'rgba(255,255,255,0.1)', 
+                                        borderRadius: '4px',
+                                        overflow: 'hidden'
+                                    }}>
+                                        <div style={{
+                                            height: '100%',
+                                            width: `${Math.min(100, (metrics.maxDrawdown / Math.abs(metrics.totalPnL || 1)) * 100)}%`,
+                                            background: '#ff4757'
+                                        }}></div>
+                                    </div>
+                                </div>
+
+                                <div style={{ marginBottom: '20px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <strong>Recovery Factor</strong>
+                                        <span style={{ 
+                                            color: metrics.recoveryFactor >= 3 ? '#00ff88' : '#ffc107',
+                                            fontSize: '18px',
+                                            fontWeight: 'bold'
+                                        }}>
+                                            {metrics.recoveryFactor.toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#a0a0a0' }}>
+                                        Lucro / Max Drawdown {metrics.recoveryFactor >= 3 ? '(Ótimo)' : '(Melhorar)'}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <strong>Kelly Criterion</strong>
+                                        <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#00ff88' }}>
+                                            {(metrics.kellyCriterion * 100).toFixed(1)}%
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#a0a0a0' }}>
+                                        Tamanho de posição sugerido
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="card">
+                            <h3>💰 Análise de Retornos</h3>
+                            <div style={{ padding: '15px' }}>
+                                <div style={{ marginBottom: '20px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <strong>Expectativa Matemática</strong>
+                                        <span style={{ 
+                                            color: metrics.expectancy >= 0 ? '#00ff88' : '#ff4757',
+                                            fontSize: '18px',
+                                            fontWeight: 'bold'
+                                        }}>
+                                            {formatBRL(metrics.expectancy)}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#a0a0a0' }}>
+                                        Retorno esperado por trade
+                                    </div>
+                                </div>
+
+                                <div style={{ marginBottom: '20px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <strong>Lucro Médio</strong>
+                                        <span style={{ color: '#00ff88', fontSize: '18px', fontWeight: 'bold' }}>
+                                            {formatBRL(metrics.avgWin)}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div style={{ marginBottom: '20px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <strong>Perda Média</strong>
+                                        <span style={{ color: '#ff4757', fontSize: '18px', fontWeight: 'bold' }}>
+                                            {formatBRL(metrics.avgLoss)}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <strong>Tempo Médio</strong>
+                                        <span style={{ fontSize: '18px', fontWeight: 'bold' }}>
+                                            {metrics.avgDuration.toFixed(1)} min
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h3>⏰ Performance por Horário</h3>
+                        <div style={{ padding: '15px' }}>
+                            {metrics.bestHour && (
+                                <div style={{ 
+                                    marginBottom: '15px', 
+                                    padding: '15px', 
+                                    background: 'rgba(0,255,136,0.1)',
+                                    border: '1px solid #00ff88',
+                                    borderRadius: '8px'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div>
+                                            <strong style={{ color: '#00ff88' }}>🏆 Melhor Horário: {metrics.bestHour.hour}:00h</strong>
+                                            <div style={{ fontSize: '13px', color: '#a0a0a0', marginTop: '5px' }}>
+                                                {metrics.bestHour.data.trades} trades | Win Rate: {metrics.bestHour.data.winRate.toFixed(1)}%
+                                            </div>
+                                        </div>
+                                        <div style={{ fontSize: '20px', color: '#00ff88', fontWeight: 'bold' }}>
+                                            {formatBRL(metrics.bestHour.data.pnl)}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {metrics.worstHour && (
+                                <div style={{ 
+                                    padding: '15px', 
+                                    background: 'rgba(255,71,87,0.1)',
+                                    border: '1px solid #ff4757',
+                                    borderRadius: '8px'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div>
+                                            <strong style={{ color: '#ff4757' }}>⚠️ Pior Horário: {metrics.worstHour.hour}:00h</strong>
+                                            <div style={{ fontSize: '13px', color: '#a0a0a0', marginTop: '5px' }}>
+                                                {metrics.worstHour.data.trades} trades | Win Rate: {metrics.worstHour.data.winRate.toFixed(1)}%
+                                            </div>
+                                        </div>
+                                        <div style={{ fontSize: '20px', color: '#ff4757', fontWeight: 'bold' }}>
+                                            {formatBRL(metrics.worstHour.data.pnl)}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h3>📊 Performance por Score</h3>
+                        <div style={{ padding: '15px' }}>
+                            {Object.entries(metrics.scorePerformance).map(([range, data]) => (
+                                <div key={range} style={{
+                                    padding: '12px',
+                                    margin: '8px 0',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '8px',
+                                    background: 'rgba(255,255,255,0.02)'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div>
+                                            <strong>Score: {range}%</strong>
+                                            <div style={{ fontSize: '13px', color: '#a0a0a0', marginTop: '5px' }}>
+                                                {data.trades} trades | Win Rate: {data.winRate.toFixed(1)}%
+                                            </div>
+                                        </div>
+                                        <div style={{ 
+                                            fontSize: '18px', 
+                                            fontWeight: 'bold',
+                                            color: data.pnl >= 0 ? '#00ff88' : '#ff4757'
+                                        }}>
+                                            {formatBRL(data.pnl)}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="grid">
+                        <div className="card">
+                            <h3>🔥 Sequências</h3>
+                            <div style={{ padding: '15px' }}>
+                                <div style={{ 
+                                    padding: '15px', 
+                                    background: 'rgba(0,255,136,0.1)',
+                                    borderRadius: '8px',
+                                    marginBottom: '15px'
+                                }}>
+                                    <div style={{ fontSize: '32px', color: '#00ff88', fontWeight: 'bold', textAlign: 'center' }}>
+                                        {metrics.maxWinStreak}
+                                    </div>
+                                    <div style={{ textAlign: 'center', color: '#a0a0a0', marginTop: '5px' }}>
+                                        Vitórias Consecutivas
+                                    </div>
+                                </div>
+                                
+                                <div style={{ 
+                                    padding: '15px', 
+                                    background: 'rgba(255,71,87,0.1)',
+                                    borderRadius: '8px'
+                                }}>
+                                    <div style={{ fontSize: '32px', color: '#ff4757', fontWeight: 'bold', textAlign: 'center' }}>
+                                        {metrics.maxLossStreak}
+                                    </div>
+                                    <div style={{ textAlign: 'center', color: '#a0a0a0', marginTop: '5px' }}>
+                                        Perdas Consecutivas
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="card">
+                            <h3>📈 Distribuição de Resultados</h3>
+                            <div style={{ padding: '15px' }}>
+                                <div style={{ marginBottom: '15px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                                        <span>Vitórias</span>
+                                        <strong style={{ color: '#00ff88' }}>{metrics.winRate.toFixed(1)}%</strong>
+                                    </div>
+                                    <div style={{ 
+                                        height: '8px', 
+                                        background: 'rgba(255,255,255,0.1)', 
+                                        borderRadius: '4px',
+                                        overflow: 'hidden'
+                                    }}>
+                                        <div style={{
+                                            height: '100%',
+                                            width: `${metrics.winRate}%`,
+                                            background: '#00ff88'
+                                        }}></div>
+                                    </div>
+                                </div>
+
+                                <div style={{ marginBottom: '15px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                                        <span>Derrotas</span>
+                                        <strong style={{ color: '#ff4757' }}>{metrics.lossRate.toFixed(1)}%</strong>
+                                    </div>
+                                    <div style={{ 
+                                        height: '8px', 
+                                        background: 'rgba(255,255,255,0.1)', 
+                                        borderRadius: '4px',
+                                        overflow: 'hidden'
+                                    }}>
+                                        <div style={{
+                                            height: '100%',
+                                            width: `${metrics.lossRate}%`,
+                                            background: '#ff4757'
+                                        }}></div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                                        <span>Expirados</span>
+                                        <strong style={{ color: '#ffc107' }}>{metrics.expiredRate.toFixed(1)}%</strong>
+                                    </div>
+                                    <div style={{ 
+                                        height: '8px', 
+                                        background: 'rgba(255,255,255,0.1)', 
+                                        borderRadius: '4px',
+                                        overflow: 'hidden'
+                                    }}>
+                                        <div style={{
+                                            height: '100%',
+                                            width: `${metrics.expiredRate}%`,
+                                            background: '#ffc107'
+                                        }}></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        function TelegramConfig({ telegramNotifier, showNotification }) {
+            const [botToken, setBotToken] = useState('');
+            const [chatId, setChatId] = useState('');
+            const [isTesting, setIsTesting] = useState(false);
+            const [isEnabled, setIsEnabled] = useState(false);
+
+            useEffect(() => {
+                if (telegramNotifier) {
+                    setIsEnabled(telegramNotifier.isEnabled());
+                }
+            }, [telegramNotifier]);
+
+            const handleSave = () => {
+                if (!botToken.trim() || !chatId.trim()) {
+                    showNotification('Preencha todos os campos');
+                    return;
+                }
+
+                telegramNotifier.configure(botToken.trim(), chatId.trim());
+                showNotification('✅ Configuração salva!');
+            };
+
+            const handleTest = async () => {
+                setIsTesting(true);
+                
+                try {
+                    const result = await telegramNotifier.testConnection();
+                    if (result.success) {
+                        showNotification('✅ Teste bem-sucedido! Verifique seu Telegram');
+                    } else {
+                        showNotification(`❌ ${result.message}`);
+                    }
+                } catch (error) {
+                    showNotification(`❌ Erro: ${error.message}`);
+                } finally {
+                    setIsTesting(false);
+                }
+            };
+
+            const handleToggle = () => {
+                try {
+                    if (isEnabled) {
+                        telegramNotifier.disable();
+                        setIsEnabled(false);
+                        showNotification('Notificações desativadas');
+                    } else {
+                        telegramNotifier.enable();
+                        setIsEnabled(true);
+                        showNotification('✅ Notificações ativadas!');
+                    }
+                } catch (error) {
+                    showNotification(`❌ ${error.message}`);
+                }
+            };
+
+            return (
+                <div>
+                    <div className="warning-box">
+                        📱 <strong>Como configurar:</strong><br/>
+                        1. Abra o Telegram e procure por <strong>@BotFather</strong><br/>
+                        2. Envie <code>/newbot</code> e siga as instruções<br/>
+                        3. Copie o <strong>Bot Token</strong> fornecido<br/>
+                        4. Procure seu bot e envie <code>/start</code><br/>
+                        5. Acesse <a href="https://api.telegram.org/botSEU_TOKEN/getUpdates" target="_blank" style={{color: '#00ff88'}}>
+                            api.telegram.org/botSEU_TOKEN/getUpdates
+                        </a><br/>
+                        6. Procure por <code>"chat":{"{"id":NUMERO{"}"}</code> - esse é seu Chat ID
+                    </div>
+
+                    <div className="card">
+                        <h3>⚙️ Configuração do Telegram</h3>
+                        
+                        <div className="form-group">
+                            <label className="form-label">Bot Token</label>
+                            <input 
+                                type="password"
+                                className="form-input"
+                                placeholder="123456:ABC-DEF1234ghIkl..."
+                                value={botToken}
+                                onChange={(e) => setBotToken(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Chat ID</label>
+                            <input 
+                                type="text"
+                                className="form-input"
+                                placeholder="123456789"
+                                value={chatId}
+                                onChange={(e) => setChatId(e.target.value)}
+                            />
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button 
+                                className="btn btn-primary"
+                                onClick={handleSave}
+                                style={{ flex: 1 }}
+                            >
+                                💾 Salvar
+                            </button>
+                            <button 
+                                className="btn btn-secondary"
+                                onClick={handleTest}
+                                disabled={isTesting || !telegramNotifier?.isConfigured()}
+                                style={{ flex: 1 }}
+                            >
+                                {isTesting ? '⏳ Testando...' : '🔍 Testar'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {telegramNotifier?.isConfigured() && (
+                        <div className="card">
+                            <h3>📢 Notificações</h3>
+                            
+                            <div style={{ 
+                                display: 'flex', 
+                                justifyContent: 'space-between', 
+                                alignItems: 'center',
+                                padding: '20px',
+                                background: isEnabled ? 'rgba(0,255,136,0.1)' : 'rgba(255,255,255,0.05)',
+                                borderRadius: '12px',
+                                border: `1px solid ${isEnabled ? '#00ff88' : 'rgba(255,255,255,0.1)'}`
+                            }}>
+                                <div>
+                                    <strong style={{ fontSize: '18px' }}>
+                                        {isEnabled ? '✅ Ativado' : '⭕ Desativado'}
+                                    </strong>
+                                    <div style={{ fontSize: '14px', color: '#a0a0a0', marginTop: '5px' }}>
+                                        {isEnabled ? 'Você receberá notificações de todos os sinais' : 'Ative para receber notificações'}
+                                    </div>
+                                </div>
+                                
+                                <div 
+                                    className={`toggle-switch ${isEnabled ? 'active' : ''}`}
+                                    onClick={handleToggle}
+                                    style={{ cursor: 'pointer' }}
+                                ></div>
+                            </div>
+
+                            {isEnabled && (
+                                <div style={{ marginTop: '20px', padding: '15px', background: 'rgba(0,255,136,0.1)', borderRadius: '8px' }}>
+                                    <strong style={{ color: '#00ff88' }}>📬 Você receberá notificações para:</strong>
+                                    <ul style={{ marginTop: '10px', paddingLeft: '20px', lineHeight: '1.8' }}>
+                                        <li>Novos sinais gerados</li>
+                                        <li>Ordens executadas (modo robô)</li>
+                                        <li>Stop Loss / Take Profit atingido</li>
+                                        <li>Relatório diário de performance</li>
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        }
         function Settings({ minScore, setMinScore }) {
             return (
                 <div>
@@ -4973,6 +6033,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
