@@ -593,55 +593,66 @@
         };
 
         class APIConnectionManager {
-            constructor() {
+    constructor() {
+        this.connections = new Map();
+        this.activeProvider = null;
+        this.isInitialized = false;
+        this.isLoading = false; // ✅ ADICIONE
+        this.loadFromStorage(); // Inicia carregamento mas não bloqueia
+    }
+
+    async loadFromStorage() {
+        if (this.isLoading) return; // Evita múltiplas chamadas
+        this.isLoading = true;
+        
+        try {
+            const { data, error } = await supabase
+                .from('api_connections')
+                .select('*')
+                .eq('id', 1)
+                .single();
+            
+            // Se a tabela não existir ou não houver dados, apenas inicializa vazio
+            if (error) {
+                if (error.code === 'PGRST116') {
+                    console.log('⚠️ Nenhuma conexão salva ainda');
+                } else if (error.code === '42P01') {
+                    console.error('❌ Tabela api_connections não existe! Execute o SQL do PASSO 1');
+                } else {
+                    console.error('❌ Erro ao carregar conexões:', error);
+                }
                 this.connections = new Map();
                 this.activeProvider = null;
-                this.loadFromStorage();
+            } else if (data) {
+                this.connections = new Map(Object.entries(data.connections || {}));
+                this.activeProvider = data.active_provider;
+                console.log('✅ Conexões API carregadas do Supabase');
             }
+            
+            this.isInitialized = true;
+        } catch (error) {
+            console.error('❌ Erro fatal ao carregar conexões:', error);
+            this.connections = new Map();
+            this.activeProvider = null;
+            this.isInitialized = true;
+        } finally {
+            this.isLoading = false;
+        }
+    }
 
-            addConnection(provider, apiKey, secretKey = null) {
-                this.connections.set(provider, {
-                    apiKey,
-                    secretKey,
-                    status: 'disconnected',
-                    lastTested: null
-                });
-                this.saveToStorage();
-            }
-
-            removeConnection(provider) {
-                this.connections.delete(provider);
-                if (this.activeProvider === provider) {
-                    this.activeProvider = null;
-                }
-                this.saveToStorage();
-            }
-
-            setActive(provider) {
-                if (this.connections.has(provider)) {
-                    this.activeProvider = provider;
-                    this.saveToStorage();
-                    return true;
-                }
-                return false;
-            }
-
-            getActiveConnection() {
-                if (!this.activeProvider) return null;
-                return {
-                    provider: this.activeProvider,
-                    ...this.connections.get(this.activeProvider)
-                };
-            }
-
-            updateStatus(provider, status) {
-                const conn = this.connections.get(provider);
-                if (conn) {
-                    conn.status = status;
-                    conn.lastTested = new Date();
-                    this.saveToStorage();
-                }
-            }
+    async ensureInitialized() {
+        // Espera até 5 segundos pela inicialização
+        let attempts = 0;
+        while (!this.isInitialized && attempts < 50) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
+        if (!this.isInitialized) {
+            console.error('⚠️ Timeout esperando inicialização do APIManager');
+            this.isInitialized = true; // Força inicialização para não travar
+        }
+    }
         }
 
         /* Continua na PARTE 2... */
@@ -3332,101 +3343,107 @@ useEffect(() => {
 }, [minScore]);
 
 useEffect(() => {
-    modeRef.current = mode;
-}, [mode]);
+    const initializeSystem = async () => {
+        try {
+            console.log('🚀 Inicializando sistema...');
+            
+            // ✅ Solicitar permissão para notificações
+            if ("Notification" in window && Notification.permission === "default") {
+                Notification.requestPermission().then(permission => {
+                    if (permission === "granted") {
+                        console.log('✅ Permissão para notificações concedida');
+                    }
+                });
+            }
+            
+            // ✅ Inicializar MemoryDB com Supabase
+            memoryDBRef.current = new MemoryDB();
+            await memoryDBRef.current.init();
+            setMemoryDB(memoryDBRef.current);
+            console.log('✅ MemoryDB inicializado com Supabase');
+            
+            marketDataRef.current = new MarketDataSimulator();
+            setMarketData(marketDataRef.current);
+            console.log('✅ MarketData inicializado');
+            
+            // ✅ Inicializar AuditSystem com Supabase
+            auditSystemRef.current = new AuditSystem();
+            window.auditSystemRef = auditSystemRef.current;
+            await auditSystemRef.current.init();
+            setAuditSystem(auditSystemRef.current);
+            console.log('✅ AuditSystem inicializado com Supabase');
+            
+            alphaEngineRef.current = new AlphaEngine(memoryDBRef.current);
+            alphaEngineRef.current.marketDataRef = marketDataRef.current;
+            alphaEngineRef.current.tpslOptimizer = new TPSLOptimizer(auditSystemRef.current);
+            setAlphaEngine(alphaEngineRef.current);
+            console.log('✅ AlphaEngine inicializado');
+            
+            // ✅ CORRIGIDO: APIManager com await
+            apiManagerRef.current = new APIConnectionManager();
+            await apiManagerRef.current.loadFromStorage(); // Garantir que carregou
+            setApiManager(apiManagerRef.current);
+            console.log('✅ APIManager inicializado');
+            
+            orderExecutorRef.current = new OrderExecutionManager(apiManagerRef.current);
+            setOrderExecutor(orderExecutorRef.current);
+            console.log('✅ OrderExecutor inicializado');
 
-            useEffect(() => {
-               try {
-                console.log('🚀 Inicializando sistema...');
+            const telegramNotifier = new TelegramNotifier();
+            window.telegramNotifier = telegramNotifier;
+            console.log('✅ TelegramNotifier inicializado');
+
+            const scheduleDailyReport = () => {
+                const now = new Date();
+                const tonight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0);
                 
-                // ✅ Solicitar permissão para notificações
-                if ("Notification" in window && Notification.permission === "default") {
-                    Notification.requestPermission().then(permission => {
-                        if (permission === "granted") {
-                            console.log('✅ Permissão para notificações concedida');
-                        }
-                    });
+                if (tonight <= now) {
+                    tonight.setDate(tonight.getDate() + 1);
                 }
                 
-                // ✅ Inicializar MemoryDB com Supabase
-                memoryDBRef.current = new MemoryDB();
-                memoryDBRef.current.init().then(() => {
-                    setMemoryDB(memoryDBRef.current);
-                    console.log('✅ MemoryDB inicializado com Supabase');
-                });
+                const msUntilReport = tonight - now;
                 
-                marketDataRef.current = new MarketDataSimulator();
-                setMarketData(marketDataRef.current);
-                console.log('✅ MarketData inicializado');
-                
-                // ✅ Inicializar AuditSystem com Supabase
-                auditSystemRef.current = new AuditSystem();
-                window.auditSystemRef = auditSystemRef.current;
-                auditSystemRef.current.init().then(() => {
-                    setAuditSystem(auditSystemRef.current);
-                    console.log('✅ AuditSystem inicializado com Supabase');
-                });
-                
-                alphaEngineRef.current = new AlphaEngine(memoryDBRef.current);
-                alphaEngineRef.current.marketDataRef = marketDataRef.current;
-                alphaEngineRef.current.tpslOptimizer = new TPSLOptimizer(auditSystemRef.current);
-                setAlphaEngine(alphaEngineRef.current);
-                console.log('✅ AlphaEngine inicializado');
-                
-                apiManagerRef.current = new APIConnectionManager();
-                await apiManagerRef.current.ensureInitialized();
-                setApiManager(apiManagerRef.current);
-                console.log('✅ APIManager inicializado');
-                
-                orderExecutorRef.current = new OrderExecutionManager(apiManagerRef.current);
-                setOrderExecutor(orderExecutorRef.current);
-                console.log('✅ OrderExecutor inicializado');
-
-                const telegramNotifier = new TelegramNotifier();
-                window.telegramNotifier = telegramNotifier;
-                console.log('✅ TelegramNotifier inicializado');
-
-                const scheduleDailyReport = () => {
-                    const now = new Date();
-                    const tonight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0);
-                    
-                    if (tonight <= now) {
-                        tonight.setDate(tonight.getDate() + 1);
+                setTimeout(async () => {
+                    if (memoryDBRef.current && telegramNotifier.isEnabled()) {
+                        const stats = await memoryDBRef.current.getStatistics();
+                        await telegramNotifier.notifyDailyReport(stats);
                     }
-                    
-                    const msUntilReport = tonight - now;
-                    
-                    setTimeout(async () => {
-                        if (memoryDBRef.current && telegramNotifier.isEnabled()) {
-                            const stats = await memoryDBRef.current.getStatistics();
-                            await telegramNotifier.notifyDailyReport(stats);
-                        }
-                        scheduleDailyReport();
-                    }, msUntilReport);
-                };
+                    scheduleDailyReport();
+                }, msUntilReport);
+            };
 
-                scheduleDailyReport();
-                
-                const updateCallback = () => setUpdateTrigger(prev => prev + 1);
-                
-                memoryDBRef.current.addChangeListener(updateCallback);
-                alphaEngineRef.current.addChangeListener(updateCallback);
-                auditSystemRef.current.addChangeListener(updateCallback);
-                
-                console.log('🎉 Sistema totalmente inicializado!');
-                console.log('%c💡 Sistema agora usa SUPABASE para persistência!', 'color: #00ff88; font-weight: bold;');
-                
-                setInterval(() => {
-                    if (alphaEngineRef.current && alphaEngineRef.current.tpslOptimizer) {
-                        alphaEngineRef.current.tpslOptimizer.learnFromResults();
-                    }
-                }, 5 * 60 * 1000);
-                
-                return () => {
-                    if (memoryDBRef.current) memoryDBRef.current.removeChangeListener(updateCallback);
-                    if (alphaEngineRef.current) alphaEngineRef.current.removeChangeListener(updateCallback);
-                    if (auditSystemRef.current) auditSystemRef.current.removeChangeListener(updateCallback);
-                };
+            scheduleDailyReport();
+            
+            const updateCallback = () => setUpdateTrigger(prev => prev + 1);
+            
+            memoryDBRef.current.addChangeListener(updateCallback);
+            alphaEngineRef.current.addChangeListener(updateCallback);
+            auditSystemRef.current.addChangeListener(updateCallback);
+            
+            console.log('🎉 Sistema totalmente inicializado!');
+            console.log('%c💡 Sistema agora usa SUPABASE para persistência!', 'color: #00ff88; font-weight: bold;');
+            
+            setInterval(() => {
+                if (alphaEngineRef.current && alphaEngineRef.current.tpslOptimizer) {
+                    alphaEngineRef.current.tpslOptimizer.learnFromResults();
+                }
+            }, 5 * 60 * 1000);
+            
+        } catch (error) {
+            console.error('❌ Erro na inicialização:', error);
+        }
+    };
+
+    // Executar a função assíncrona
+    initializeSystem();
+    
+    // Cleanup
+    return () => {
+        if (memoryDBRef.current) memoryDBRef.current.removeChangeListener(() => setUpdateTrigger(prev => prev + 1));
+        if (alphaEngineRef.current) alphaEngineRef.current.removeChangeListener(() => setUpdateTrigger(prev => prev + 1));
+        if (auditSystemRef.current) auditSystemRef.current.removeChangeListener(() => setUpdateTrigger(prev => prev + 1));
+    };
+}, []);
                 
             } catch (error) {
                 console.error('❌ Erro na inicialização:', error);
@@ -6324,6 +6341,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
