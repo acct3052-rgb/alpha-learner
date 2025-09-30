@@ -525,10 +525,7 @@
 <body>
     <div id="root"></div>
     <script type="text/babel">
-        // ========================================
-// IMPORTAR SUPABASE CLIENT
-// ========================================
-import { supabaseStorage } from './supabase-client.js';
+
 
 // Substituir todas as classes que usam localStorage
         const { useState, useEffect, useRef } = React;
@@ -600,31 +597,6 @@ import { supabaseStorage } from './supabase-client.js';
                 this.connections = new Map();
                 this.activeProvider = null;
                 this.loadFromStorage();
-            }
-
-            loadFromStorage() {
-                try {
-                    const saved = localStorage.getItem('api_connections');
-                    if (saved) {
-                        const data = JSON.parse(saved);
-                        this.connections = new Map(Object.entries(data.connections || data));
-                        this.activeProvider = data.activeProvider || null;
-                    }
-                } catch (error) {
-                    console.log('Erro ao carregar conexões:', error);
-                }
-            }
-
-            saveToStorage() {
-                try {
-                    const data = {
-                        connections: Object.fromEntries(this.connections),
-                        activeProvider: this.activeProvider
-                    };
-                    localStorage.setItem('api_connections', JSON.stringify(data));
-                } catch (error) {
-                    console.log('Erro ao salvar conexões:', error);
-                }
             }
 
             addConnection(provider, apiKey, secretKey = null) {
@@ -2391,27 +2363,27 @@ class TPSLOptimizer {
     return signal;
 }
 
-            extractFeatures(currentPrice, rsi, macd, bollinger, stochastic, volume, obv, ichimoku, vwap) {
+          extractFeatures(currentPrice, rsi, macd, bollinger, stochastic, volume, obv, ichimoku, vwap) {
     return {
         rsi: {
-                        value: rsi,
-                        overbought: rsi > 70,
-                        oversold: rsi < 30,
-                        score: this.calculateRSIScore(rsi)
-                    },
-                    macd: {
-                        value: macd.macd,
-                        signal: macd.signal,
-                        histogram: macd.histogram,
-                        bullish: macd.macd > macd.signal,
-                        score: this.calculateMACDScore(macd)
-                    },
-                    bollinger: {
-                        position: (currentPrice.close - bollinger.lower) / (bollinger.upper - bollinger.lower),
-                        squeeze: (bollinger.upper - bollinger.lower) / bollinger.middle < 0.1,
-                        score: this.calculateBollingerScore(currentPrice.close, bollinger)
-                    },
-                    stochastic: {
+            value: rsi,
+            overbought: rsi > 70,
+            oversold: rsi < 30,
+            score: this.calculateRSIScore(rsi)
+        },
+        macd: {
+            value: macd.macd,
+            signal: macd.signal,
+            histogram: macd.histogram,
+            bullish: macd.macd > macd.signal,
+            score: this.calculateMACDScore(macd)
+        },
+        bollinger: {
+            position: (currentPrice.close - bollinger.lower) / (bollinger.upper - bollinger.lower),
+            squeeze: (bollinger.upper - bollinger.lower) / bollinger.middle < 0.1,
+            score: this.calculateBollingerScore(currentPrice.close, bollinger)
+        },
+        stochastic: {
             k: stochastic.k,
             d: stochastic.d,
             overbought: stochastic.k > 80,
@@ -2420,7 +2392,6 @@ class TPSLOptimizer {
             divergence: this.detectDivergence(),
             score: this.calculateStochasticScore(stochastic)
         },
-        // ✅ NOVOS INDICADORES ADICIONADOS
         volume: {
             value: volume,
             score: this.calculateVolumeScore(volume)
@@ -2538,117 +2509,112 @@ calculateVolumeScore(volume) {
                 
                 return Math.max(-1, Math.min(1, score));
             }
+           
             generateSignal(features, currentPrice, dataSource) {
-                let score = 0;
-                const contributors = [];
+    let score = 0;
+    const contributors = [];
 
-                Object.keys(this.weights).forEach(indicator => {
-                    let indicatorScore = 0;
-                    
-                    switch(indicator) {
-                        case 'rsi':
-                            indicatorScore = features.rsi.score;
-                            break;
-                        case 'macd':
-                            indicatorScore = features.macd.score;
-                            break;
-                        case 'bollinger':
-                            indicatorScore = features.bollinger.score;
-                            break;
-                        case 'stochastic_events':
-                            indicatorScore = features.stochastic.score;
-                            break;
-                        case 'stochastic_divergence':
+    Object.keys(this.weights).forEach(indicator => {
+        let indicatorScore = 0;
+        
+        switch(indicator) {
+            case 'rsi':
+                indicatorScore = features.rsi.score;
+                break;
+            case 'macd':
+                indicatorScore = features.macd.score;
+                break;
+            case 'bollinger':
+                indicatorScore = features.bollinger.score;
+                break;
+            case 'stochastic_events':
+                indicatorScore = features.stochastic.score;
+                break;
+            case 'stochastic_divergence':
                 if (features.stochastic.divergence.present) {
                     indicatorScore = features.stochastic.divergence.type === 'bullish' ? 0.8 : -0.8;
                     indicatorScore *= features.stochastic.divergence.strength;
                 }
-                break; // ✅ CORRIGIDO: break no lugar certo
-                        case 'volume':
-                            indicatorScore = features.volume.score;
-                            break;
-                        case 'obv':
-                            indicatorScore = features.obv.score;
-                            break;
-                        case 'ichimoku':
-                            indicatorScore = features.ichimoku.score;
-                            break;
-                        case 'vwap':
+                break;
+            case 'volume':
+                indicatorScore = features.volume.score;
+                break;
+            case 'obv':
+                indicatorScore = features.obv.score;
+                break;
+            case 'ichimoku':
+                indicatorScore = features.ichimoku.score;
+                break;
+            case 'vwap':
                 indicatorScore = features.vwap.score;
                 break;
-        } // ✅ CORRIGIDO: fechamento do switch
-                          
-                    
-                    
-                    score += indicatorScore * this.weights[indicator];
-                    if (Math.abs(indicatorScore) > 0.1) {
-                        contributors.push(indicator);
-                    }
-                });
-
-                const normalizedScore = Math.max(0, Math.min(100, (score + 1) * 50));
-
-                if (normalizedScore < 25) {
-                    return null;
-                }
-
-                const direction = score > 0 ? 'BUY' : 'SELL';
-        const atr = TechnicalIndicators.calculateATR([currentPrice]);
+        }
         
-        // ✨ NOVO: Usa otimizador de TP/SL
-        const prices = this.marketDataRef ? this.marketDataRef.prices : [];
-        const optimizedLevels = this.tpslOptimizer ? 
-            this.tpslOptimizer.getOptimalLevels(currentPrice.close, atr, 'M5', direction, prices) :
-            {
-                stopLoss: direction === 'BUY' ? currentPrice.close - (atr * 2) : currentPrice.close + (atr * 2),
-                takeProfit: direction === 'BUY' ? currentPrice.close + (atr * 4) : currentPrice.close - (atr * 4),
-                riskReward: 2.0
-            };
-        
-       const timeframeMinutes = 5; // ✅ CORRIGIDO: timeframe fixo de 5 minutos
-                const entryTime = new Date();
-                entryTime.setMinutes(entryTime.getMinutes() + Math.floor(Math.random() * timeframeMinutes) + 1);
-                
-                const signal = {
-                    id: Date.now() + Math.random(),
-                    timestamp: new Date(),
-                    symbol: 'BTCUSDT',
-                    direction,
-                    timeframe: timeframeMinutes === 5 ? 'M5' : 'M15',
-                    score: Math.round(normalizedScore),
-                    price: currentPrice.close,
-            entryTime: entryTime,
-            stopLoss: optimizedLevels.stopLoss,
-            takeProfit: optimizedLevels.takeProfit,
-            riskReward: optimizedLevels.riskReward,
-            tpslDetails: optimizedLevels, // ✨ NOVO
-            contributors,
-                    divergence: features.stochastic.divergence.present ? features.stochastic.divergence : null,
-                    features,
-                    status: 'PENDENTE',
-                    dataSource,
-                    pnl: 0,
-                    executed: false
-                };
+        score += indicatorScore * this.weights[indicator];
+        if (Math.abs(indicatorScore) > 0.1) {
+            contributors.push(indicator);
+        }
+    });
 
-                this.memoryDB.saveSignal(signal);
-                
-                if (window.auditSystemRef) {
-                    try {
-                        if (window.debugAudit) {
-                            console.log('🔍 [ENGINE] Chamando auditSystem.logSignalGeneration');
-                        }
-                        window.auditSystemRef.logSignalGeneration(signal, currentPrice, { weights: this.weights });
-                    } catch (error) {
-                        console.error('❌ [ENGINE] Erro ao registrar no auditSystem:', error);
-                    }
-                } else {
-                    console.warn('⚠️ [ENGINE] auditSystemRef não está disponível!');
-                }
+    const normalizedScore = Math.max(0, Math.min(100, (score + 1) * 50));
 
-                return signal;
+    if (normalizedScore < 25) {
+        return null;
+    }
+
+    const direction = score > 0 ? 'BUY' : 'SELL';
+    const atr = TechnicalIndicators.calculateATR([currentPrice]);
+    
+    const prices = this.marketDataRef ? this.marketDataRef.prices : [];
+    const optimizedLevels = this.tpslOptimizer ? 
+        this.tpslOptimizer.getOptimalLevels(currentPrice.close, atr, 'M5', direction, prices) :
+        {
+            stopLoss: direction === 'BUY' ? currentPrice.close - (atr * 2) : currentPrice.close + (atr * 2),
+            takeProfit: direction === 'BUY' ? currentPrice.close + (atr * 4) : Math.max(0.01, currentPrice.close - (atr * 4)),
+            riskReward: 2.0
+        };
+    
+    const timeframeMinutes = 5;
+    const entryTime = new Date();
+    entryTime.setMinutes(entryTime.getMinutes() + Math.floor(Math.random() * timeframeMinutes) + 1);
+    
+    const signal = {
+        id: Date.now() + Math.random(),
+        timestamp: new Date(),
+        symbol: 'BTCUSDT',
+        direction,
+        timeframe: 'M5',
+        score: Math.round(normalizedScore),
+        price: currentPrice.close,
+        entryTime: entryTime,
+        stopLoss: optimizedLevels.stopLoss,
+        takeProfit: optimizedLevels.takeProfit,
+        riskReward: optimizedLevels.riskReward,
+        tpslDetails: optimizedLevels,
+        contributors,
+        divergence: features.stochastic.divergence.present ? features.stochastic.divergence : null,
+        features,
+        status: 'PENDENTE',
+        dataSource,
+        pnl: 0,
+        executed: false
+    };
+
+    this.memoryDB.saveSignal(signal);
+    
+    if (window.auditSystemRef) {
+        try {
+            if (window.debugAudit) {
+                console.log('🔍 [ENGINE] Chamando auditSystem.logSignalGeneration');
             }
+            window.auditSystemRef.logSignalGeneration(signal, currentPrice, { weights: this.weights });
+        } catch (error) {
+            console.error('❌ [ENGINE] Erro ao registrar no auditSystem:', error);
+        }
+    }
 
+    return signal;
+}
             async learnFromTrade(signal, result) {
                 const successful = result === 'ACERTO';
                 const learningRate = 0.1;
@@ -6256,6 +6222,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
