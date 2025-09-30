@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alpha-Learner Trading Platform v2.2</title>
+    <title>Alpha-Learner Trading Platform v2.3</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.5/babel.min.js"></script>
@@ -650,6 +650,8 @@
             }
         }
 
+        /* Continua na PARTE 2... */
+
         /* ========================================
            FUNÇÕES DE API
            ======================================== */
@@ -1122,7 +1124,27 @@
                 this.performanceByHour = {};
                 this.performanceByScore = {};
                 this.indicatorPerformance = {};
+                this.listeners = new Set(); // NOVO: Para notificar mudanças
                 this.loadFromStorage();
+            }
+
+            // NOVO: Método para registrar listeners
+            addChangeListener(callback) {
+                this.listeners.add(callback);
+            }
+
+            removeChangeListener(callback) {
+                this.listeners.delete(callback);
+            }
+
+            notifyChange() {
+                this.listeners.forEach(callback => {
+                    try {
+                        callback();
+                    } catch (error) {
+                        console.error('Erro ao notificar listener:', error);
+                    }
+                });
             }
 
             loadFromStorage() {
@@ -1168,6 +1190,8 @@
                             timestamp: data.lastSaved
                         });
                     }
+                    
+                    this.notifyChange(); // NOVO: Notificar mudanças
                 } catch (e) {
                     console.error('❌ [AUDIT] Erro ao salvar auditoria:', e);
                 }
@@ -1385,28 +1409,26 @@
                 ];
 
                 const rows = this.auditLogs.map(log => {
-                    // CORREÇÃO: Garantir ordem EXATA das colunas
                     return [
-                        log.signalId,                                                           // ID
-                        new Date(log.generatedAt).toLocaleString('pt-BR'),                    // Gerado Em
-                        log.hourOfDay + 'h',                                                   // Horário
-                        log.metadata.symbol,                                                   // Símbolo
-                        log.metadata.direction,                                                // Direção
-                        log.scoreRange,                                                        // Score
-                        log.prices.theoretical ? log.prices.theoretical.toFixed(2) : 'N/A',   // Preço Teórico
-                        log.prices.actualEntry ? log.prices.actualEntry.toFixed(2) : 'N/A',   // Preço Entrada
-                        log.prices.slippage ? log.prices.slippage.toFixed(2) : 'N/A',         // Slippage
-                        log.prices.actualExit ? log.prices.actualExit.toFixed(2) : 'N/A',     // Preço Saída
-                        log.prices.finalPnL !== null && log.prices.finalPnL !== undefined ? log.prices.finalPnL.toFixed(2) : '0.00', // P&L
-                        log.outcome || 'PENDENTE',                                            // Resultado
-                        (log.reason || 'Em andamento').replace(/,/g, ';'),                   // Motivo (sem vírgulas)
-                        log.metadata.dataSource                                               // Fonte Dados
+                        log.signalId,
+                        new Date(log.generatedAt).toLocaleString('pt-BR'),
+                        log.hourOfDay + 'h',
+                        log.metadata.symbol,
+                        log.metadata.direction,
+                        log.scoreRange,
+                        log.prices.theoretical ? log.prices.theoretical.toFixed(2) : 'N/A',
+                        log.prices.actualEntry ? log.prices.actualEntry.toFixed(2) : 'N/A',
+                        log.prices.slippage ? log.prices.slippage.toFixed(2) : 'N/A',
+                        log.prices.actualExit ? log.prices.actualExit.toFixed(2) : 'N/A',
+                        log.prices.finalPnL !== null && log.prices.finalPnL !== undefined ? log.prices.finalPnL.toFixed(2) : '0.00',
+                        log.outcome || 'PENDENTE',
+                        (log.reason || 'Em andamento').replace(/,/g, ';'),
+                        log.metadata.dataSource
                     ];
                 });
 
                 let csv = headers.join(',') + '\n';
                 rows.forEach(row => {
-                    // Escapar valores que contenham vírgulas
                     const escapedRow = row.map(value => {
                         const strValue = String(value);
                         if (strValue.includes(',')) {
@@ -1471,6 +1493,8 @@
             }
         }
 
+        /* Continua na PARTE 3... */
+
         /* ========================================
            CLASSES TÉCNICAS (MemoryDB, MarketData, Indicators, AlphaEngine)
            ======================================== */
@@ -1480,7 +1504,27 @@
                 this.signals_history = [];
                 this.ml_weights_evolution = [];
                 this.config_snapshots = [];
+                this.listeners = new Set(); // NOVO: Para notificar mudanças
                 this.loadFromStorage();
+            }
+
+            // NOVO: Método para registrar listeners
+            addChangeListener(callback) {
+                this.listeners.add(callback);
+            }
+
+            removeChangeListener(callback) {
+                this.listeners.delete(callback);
+            }
+
+            notifyChange() {
+                this.listeners.forEach(callback => {
+                    try {
+                        callback();
+                    } catch (error) {
+                        console.error('Erro ao notificar listener:', error);
+                    }
+                });
             }
 
             loadFromStorage() {
@@ -1505,6 +1549,7 @@
                         config_snapshots: this.config_snapshots
                     };
                     localStorage.setItem('alpha_learner_data', JSON.stringify(data));
+                    this.notifyChange(); // NOVO: Notificar mudanças
                 } catch (error) {
                     console.error('Erro ao salvar dados:', error);
                 }
@@ -1580,7 +1625,6 @@
             getLatestPrice() {
                 const latestPrice = this.prices[this.prices.length - 1];
                 
-                // Detecção de preço travado
                 if (this.lastPriceCheck && this.lastPriceCheck.close === latestPrice.close) {
                     this.stuckPriceCount++;
                     if (this.stuckPriceCount > 3) {
@@ -1600,8 +1644,7 @@
 
             addNewCandle() {
                 const lastCandle = this.prices[this.prices.length - 1];
-                // Aumentar a variação para evitar preços travados
-                const volatility = 150; // Aumentado de 100 para 150
+                const volatility = 150;
                 const trend = (Math.random() - 0.5) * volatility;
                 const newPrice = lastCandle.close + trend;
                 
@@ -1619,7 +1662,7 @@
                     this.prices.shift();
                 }
                 
-                if (window.debugAudit && Math.random() < 0.1) { // Log 10% das vezes
+                if (window.debugAudit && Math.random() < 0.1) {
                     console.log('📈 Novo candle:', newCandle.close.toFixed(2), 'Variação:', trend.toFixed(2));
                 }
                 
@@ -1743,7 +1786,27 @@
                     winRate: 0,
                     totalPnL: 0
                 };
+                this.listeners = new Set(); // NOVO: Para notificar mudanças
                 this.warmUpModel();
+            }
+
+            // NOVO: Método para registrar listeners
+            addChangeListener(callback) {
+                this.listeners.add(callback);
+            }
+
+            removeChangeListener(callback) {
+                this.listeners.delete(callback);
+            }
+
+            notifyChange() {
+                this.listeners.forEach(callback => {
+                    try {
+                        callback();
+                    } catch (error) {
+                        console.error('Erro ao notificar listener:', error);
+                    }
+                });
             }
 
             async warmUpModel() {
@@ -1756,6 +1819,7 @@
                             winRate: stats.winRate,
                             totalPnL: stats.totalPnL
                         };
+                        this.notifyChange(); // NOVO: Notificar após carregar
                     }
                 } catch (error) {
                     console.log('Erro ao aquecer modelo:', error);
@@ -1810,40 +1874,31 @@
             }
 
             calculateRSIScore(rsi) {
-                // CORRIGIDO: RSI sobre-vendido indica possível reversão para CIMA (BUY)
-                // RSI sobre-comprado indica possível reversão para BAIXO (SELL)
-                if (rsi < 30) return 0.8;    // Sobre-vendido → provável alta → BUY
-                if (rsi > 70) return -0.8;   // Sobre-comprado → provável queda → SELL
+                if (rsi < 30) return 0.8;
+                if (rsi > 70) return -0.8;
                 return 0;
             }
 
             calculateMACDScore(macd) {
-                // CORRIGIDO: MACD positivo e crescente indica tendência de alta (BUY)
-                // MACD negativo e decrescente indica tendência de baixa (SELL)
-                if (macd.macd > macd.signal && macd.histogram > 0) return 0.7;  // Cruzamento para cima → BUY
-                if (macd.macd < macd.signal && macd.histogram < 0) return -0.7; // Cruzamento para baixo → SELL
+                if (macd.macd > macd.signal && macd.histogram > 0) return 0.7;
+                if (macd.macd < macd.signal && macd.histogram < 0) return -0.7;
                 return 0;
             }
 
             calculateBollingerScore(price, bollinger) {
-                // CORRIGIDO: Preço na banda inferior → sobre-vendido → BUY
-                // Preço na banda superior → sobre-comprado → SELL
                 const position = (price - bollinger.lower) / (bollinger.upper - bollinger.lower);
-                if (position < 0.2) return 0.6;   // Banda inferior → BUY
-                if (position > 0.8) return -0.6;  // Banda superior → SELL
+                if (position < 0.2) return 0.6;
+                if (position > 0.8) return -0.6;
                 return 0;
             }
 
             calculateStochasticScore(stochastic) {
                 let score = 0;
-                // CORRIGIDO: Stochastic baixo → sobre-vendido → BUY
-                // Stochastic alto → sobre-comprado → SELL
-                if (stochastic.k < 20) score += 0.5;   // Sobre-vendido → BUY
-                if (stochastic.k > 80) score -= 0.5;   // Sobre-comprado → SELL
+                if (stochastic.k < 20) score += 0.5;
+                if (stochastic.k > 80) score -= 0.5;
                 
-                // Cruzamento: K acima de D indica momento de alta
-                if (stochastic.k > stochastic.d) score += 0.3;  // Cruzamento para cima → BUY
-                else score -= 0.3;                               // Cruzamento para baixo → SELL
+                if (stochastic.k > stochastic.d) score += 0.3;
+                else score -= 0.3;
                 
                 return score;
             }
@@ -1933,7 +1988,6 @@
 
                 this.memoryDB.saveSignal(signal);
                 
-                // LOG PARA AUDITORIA COM VERIFICAÇÃO
                 if (window.auditSystemRef) {
                     try {
                         if (window.debugAudit) {
@@ -1978,6 +2032,8 @@
                 if (this.performance.totalSignals % 10 === 0) {
                     await this.memoryDB.saveWeightsSnapshot(this.weights, this.performance);
                 }
+                
+                this.notifyChange(); // NOVO: Notificar mudanças na performance
             }
         }
 
@@ -2001,6 +2057,7 @@
             const [orderExecutor, setOrderExecutor] = useState(null);
             const [auditSystem, setAuditSystem] = useState(null);
             const [maxPositions, setMaxPositions] = useState(3);
+            const [updateTrigger, setUpdateTrigger] = useState(0); // NOVO: Para forçar re-renders
 
             const marketDataRef = useRef(null);
             const alphaEngineRef = useRef(null);
@@ -2022,7 +2079,6 @@
                         setMaxPositions(config.maxPositions || 3);
                     }
                     
-                    // ORDEM CORRETA DE INICIALIZAÇÃO
                     memoryDBRef.current = new MemoryDB();
                     setMemoryDB(memoryDBRef.current);
                     console.log('✅ MemoryDB inicializado');
@@ -2031,7 +2087,6 @@
                     setMarketData(marketDataRef.current);
                     console.log('✅ MarketData inicializado');
                     
-                    // AUDITORIA ANTES DO ALPHA ENGINE!
                     auditSystemRef.current = new AuditSystem();
                     window.auditSystemRef = auditSystemRef.current;
                     setAuditSystem(auditSystemRef.current);
@@ -2049,8 +2104,22 @@
                     setOrderExecutor(orderExecutorRef.current);
                     console.log('✅ OrderExecutor inicializado');
                     
+                    // NOVO: Registrar listeners para atualizações
+                    const updateCallback = () => setUpdateTrigger(prev => prev + 1);
+                    
+                    memoryDBRef.current.addChangeListener(updateCallback);
+                    alphaEngineRef.current.addChangeListener(updateCallback);
+                    auditSystemRef.current.addChangeListener(updateCallback);
+                    
                     console.log('🎉 Sistema totalmente inicializado!');
                     console.log('%c💡 DICA: Digite auditDiag() no console para diagnóstico rápido', 'color: #00ff88; font-weight: bold;');
+                    
+                    // Cleanup
+                    return () => {
+                        if (memoryDBRef.current) memoryDBRef.current.removeChangeListener(updateCallback);
+                        if (alphaEngineRef.current) alphaEngineRef.current.removeChangeListener(updateCallback);
+                        if (auditSystemRef.current) auditSystemRef.current.removeChangeListener(updateCallback);
+                    };
                     
                 } catch (error) {
                     console.error('❌ Erro na inicialização:', error);
@@ -2096,7 +2165,6 @@
                         const activeConn = apiManager.getActiveConnection();
                         let currentDataSource = 'SIMULADO';
                         
-                        // Verificar se preço está travado ANTES de buscar dados
                         const currentPrice = marketData.getLatestPrice();
                         if (lastKnownPrice && currentPrice.close === lastKnownPrice) {
                             samePriceCount++;
@@ -2145,7 +2213,6 @@
                                 setDataSource('SIMULADO');
                             }
                         } else {
-                            // Sem API ativa, usar simulador
                             marketData.addNewCandle();
                             currentDataSource = 'SIMULADO';
                             setDataSource('SIMULADO');
@@ -2159,7 +2226,6 @@
                             playAlert();
                             scheduleSignalVerification(signal);
                             
-                            // EXECUÇÃO AUTOMÁTICA SE MODO ROBÔ
                             if (mode === 'auto' && orderExecutorRef.current) {
                                 const executionResult = await orderExecutorRef.current.executeSignalAuto(
                                     signal,
@@ -2247,7 +2313,6 @@
                             clearTimeout(verificationTimerId);
                             verificationTimers.current.delete(signal.id);
 
-                            // ATUALIZAR AUDITORIA
                             if (window.auditSystemRef) {
                                 try {
                                     if (window.debugAudit) {
@@ -2324,7 +2389,6 @@
                     signal.pnl = pnl;
                     signal.finalPrice = currentPrice;
 
-                    // ATUALIZAR AUDITORIA
                     if (window.auditSystemRef) {
                         try {
                             if (window.debugAudit) {
@@ -2487,6 +2551,7 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                                 formatBRL={formatBRL}
                                 orderExecutor={orderExecutor}
                                 mode={mode}
+                                updateTrigger={updateTrigger}
                             />
                         )}
                         
@@ -2495,12 +2560,17 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                                 alphaEngine={alphaEngine} 
                                 signals={signals} 
                                 memoryDB={memoryDB} 
-                                formatBRL={formatBRL} 
+                                formatBRL={formatBRL}
+                                updateTrigger={updateTrigger}
                             />
                         )}
                         
                         {currentView === 'ml-engine' && (
-                            <MLEngine alphaEngine={alphaEngine} memoryDB={memoryDB} />
+                            <MLEngine 
+                                alphaEngine={alphaEngine} 
+                                memoryDB={memoryDB}
+                                updateTrigger={updateTrigger}
+                            />
                         )}
                         
                         {currentView === 'robot' && (
@@ -2543,6 +2613,8 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
             );
         }
 
+        /* COMPONENTES REACT - Sidebar e Header */
+        
         function Sidebar({ currentView, setCurrentView }) {
             const menuItems = [
                 { id: 'dashboard', label: 'Dashboard', icon: '📊' },
@@ -2556,7 +2628,7 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
 
             return (
                 <div className="sidebar">
-                    <div className="logo">⚡ Alpha-Learner v2.2</div>
+                    <div className="logo">⚡ Alpha-Learner v2.3</div>
                     {menuItems.map(item => (
                         <div 
                             key={item.id}
@@ -2628,23 +2700,35 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
             );
         }
 
-        function Dashboard({ signals, alphaEngine, minScore, setMinScore, dismissSignal, copySignalDetails, riskAmount, setRiskAmount, maxPositions, setMaxPositions, formatBRL, orderExecutor, mode }) {
-            const getPerformanceMetrics = () => {
-                try {
-                    if (!alphaEngine || !alphaEngine.performance) {
-                        return { winRate: 0, totalPnL: 0, totalSignals: 0 };
-                    }
-                    return {
-                        winRate: alphaEngine.performance.winRate || 0,
-                        totalPnL: alphaEngine.performance.totalPnL || 0,
-                        totalSignals: alphaEngine.performance.totalSignals || 0
-                    };
-                } catch (error) {
-                    return { winRate: 0, totalPnL: 0, totalSignals: 0 };
-                }
-            };
+        /* COMPONENTES REACT - Dashboard e Performance (COM ATUALIZAÇÃO EM TEMPO REAL) */
 
-            const metrics = getPerformanceMetrics();
+        function Dashboard({ signals, alphaEngine, minScore, setMinScore, dismissSignal, copySignalDetails, riskAmount, setRiskAmount, maxPositions, setMaxPositions, formatBRL, orderExecutor, mode, updateTrigger }) {
+            const [metrics, setMetrics] = useState({ winRate: 0, totalPnL: 0, totalSignals: 0 });
+
+            // NOVO: Atualizar métricas quando alphaEngine ou updateTrigger mudar
+            useEffect(() => {
+                const updateMetrics = () => {
+                    try {
+                        if (!alphaEngine || !alphaEngine.performance) {
+                            setMetrics({ winRate: 0, totalPnL: 0, totalSignals: 0 });
+                            return;
+                        }
+                        setMetrics({
+                            winRate: alphaEngine.performance.winRate || 0,
+                            totalPnL: alphaEngine.performance.totalPnL || 0,
+                            totalSignals: alphaEngine.performance.totalSignals || 0
+                        });
+                    } catch (error) {
+                        console.error('Erro ao atualizar métricas:', error);
+                    }
+                };
+
+                updateMetrics();
+                
+                // NOVO: Atualizar a cada 5 segundos
+                const interval = setInterval(updateMetrics, 5000);
+                return () => clearInterval(interval);
+            }, [alphaEngine, updateTrigger]);
 
             return (
                 <div>
@@ -2766,6 +2850,158 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                 </div>
             );
         }
+
+        function Performance({ alphaEngine, signals, memoryDB, formatBRL, updateTrigger }) {
+            const [stats, setStats] = useState(null);
+
+            // NOVO: Atualizar estatísticas quando memoryDB ou updateTrigger mudar
+            useEffect(() => {
+                const loadStats = async () => {
+                    if (memoryDB) {
+                        const dbStats = await memoryDB.getStatistics();
+                        setStats(dbStats);
+                    }
+                };
+                loadStats();
+                
+                // NOVO: Atualizar a cada 5 segundos
+                const interval = setInterval(loadStats, 5000);
+                return () => clearInterval(interval);
+            }, [memoryDB, signals, updateTrigger]);
+
+            if (!alphaEngine) return null;
+
+            return (
+                <div>
+                    <div className="card">
+                        <h3>📈 Performance Geral</h3>
+                        <div className="metric-grid">
+                            <div className="metric-card">
+                                <div className="metric-value">{stats?.total || 0}</div>
+                                <div className="metric-label">Total de Sinais</div>
+                            </div>
+                            <div className="metric-card">
+                                <div className="metric-value">{stats?.successful || 0}</div>
+                                <div className="metric-label">Sinais Bem-sucedidos</div>
+                            </div>
+                            <div className="metric-card">
+                                <div className="metric-value">{(stats?.winRate || 0).toFixed(1)}%</div>
+                                <div className="metric-label">Taxa de Acerto</div>
+                            </div>
+                            <div className="metric-card">
+                                <div className="metric-value" style={{
+                                    color: (stats?.totalPnL || 0) >= 0 ? '#00ff88' : '#ff4757'
+                                }}>
+                                    {formatBRL(stats?.totalPnL || 0)}
+                                </div>
+                                <div className="metric-label">P&L Total</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h3>🎯 Histórico Recente</h3>
+                        {!signals || signals.length === 0 ? (
+                            <div style={{ textAlign: 'center', color: '#a0a0a0', padding: '20px' }}>
+                                Nenhum sinal ainda
+                            </div>
+                        ) : (
+                            <div>
+                                {signals.filter(s => s && s.status !== 'PENDENTE').map(signal => (
+                                    <div key={signal.id} style={{ 
+                                        padding: '15px', 
+                                        margin: '10px 0',
+                                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                                        borderRadius: '8px',
+                                        background: signal.status === 'ACERTO' ? 
+                                            'rgba(0, 255, 136, 0.1)' : 'rgba(255, 71, 87, 0.1)'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <div>
+                                                <strong>{signal.direction} {signal.symbol}</strong>
+                                                <span style={{ marginLeft: '10px', fontSize: '14px', color: '#a0a0a0' }}>
+                                                    Score: {signal.score}%
+                                                </span>
+                                            </div>
+                                            <div style={{ 
+                                                color: signal.status === 'ACERTO' ? '#00ff88' : '#ff4757',
+                                                fontWeight: 'bold'
+                                            }}>
+                                                {formatBRL(signal.pnl || 0)}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function MLEngine({ alphaEngine, memoryDB, updateTrigger }) {
+            const [weightsHistory, setWeightsHistory] = useState([]);
+            const [currentWeights, setCurrentWeights] = useState({});
+
+            // NOVO: Atualizar pesos quando alphaEngine ou updateTrigger mudar
+            useEffect(() => {
+                const loadHistory = async () => {
+                    if (memoryDB) {
+                        const history = await memoryDB.getWeightsHistory();
+                        setWeightsHistory(history);
+                    }
+                };
+                loadHistory();
+                
+                // NOVO: Atualizar a cada 5 segundos
+                const interval = setInterval(loadHistory, 5000);
+                return () => clearInterval(interval);
+            }, [memoryDB, updateTrigger]);
+
+            useEffect(() => {
+                if (alphaEngine && alphaEngine.weights) {
+                    setCurrentWeights(alphaEngine.weights);
+                }
+                
+                // NOVO: Atualizar a cada 5 segundos
+                const interval = setInterval(() => {
+                    if (alphaEngine && alphaEngine.weights) {
+                        setCurrentWeights({...alphaEngine.weights});
+                    }
+                }, 5000);
+                
+                return () => clearInterval(interval);
+            }, [alphaEngine, updateTrigger]);
+
+            if (!alphaEngine) return null;
+
+            return (
+                <div>
+                    <div className="card">
+                        <h3>🧠 Pesos Adaptativos</h3>
+                        <div style={{ marginTop: '20px' }}>
+                            {Object.entries(currentWeights).map(([indicator, weight]) => (
+                                <div key={indicator} className="weight-item">
+                                    <div>
+                                        <strong>{indicator.replace('_', ' ').toUpperCase()}</strong>
+                                        <br />
+                                        <small>{((weight || 0) * 100).toFixed(1)}%</small>
+                                    </div>
+                                    <div className="weight-bar">
+                                        <div 
+                                            className="weight-fill" 
+                                            style={{ width: `${(weight || 0) * 100}%` }}
+                                        ></div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        /* CONTINUAÇÃO DOS COMPONENTES - SignalCard, RobotView, AuditView, ConnectionsView, Settings */
 
         function SignalCard({ signal, onDismiss, onCopy, formatBRL, mode }) {
             if (!signal) return null;
@@ -3362,8 +3598,8 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                                                         </div>
                                                         <div style={{ fontSize: '14px', color: stats.totalPnL >= 0 ? '#00ff88' : '#ff4757' }}>
                                                             {formatBRL(stats.totalPnL)}
-                                                        </div>
-                                                    </div>
+                                                        </div
+                                                          </div>
                                                 </div>
                                             </div>
                                         );
@@ -3444,140 +3680,13 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
             );
         }
 
-        function Performance({ alphaEngine, signals, memoryDB, formatBRL }) {
-            const [stats, setStats] = useState(null);
-
-            useEffect(() => {
-                const loadStats = async () => {
-                    if (memoryDB) {
-                        const dbStats = await memoryDB.getStatistics();
-                        setStats(dbStats);
-                    }
-                };
-                loadStats();
-            }, [memoryDB, signals]);
-
-            if (!alphaEngine) return null;
-
-            const performance = alphaEngine.performance || {};
-
-            return (
-                <div>
-                    <div className="card">
-                        <h3>📈 Performance Geral</h3>
-                        <div className="metric-grid">
-                            <div className="metric-card">
-                                <div className="metric-value">{stats?.total || 0}</div>
-                                <div className="metric-label">Total de Sinais</div>
-                            </div>
-                            <div className="metric-card">
-                                <div className="metric-value">{stats?.successful || 0}</div>
-                                <div className="metric-label">Sinais Bem-sucedidos</div>
-                            </div>
-                            <div className="metric-card">
-                                <div className="metric-value">{(stats?.winRate || 0).toFixed(1)}%</div>
-                                <div className="metric-label">Taxa de Acerto</div>
-                            </div>
-                            <div className="metric-card">
-                                <div className="metric-value" style={{
-                                    color: (stats?.totalPnL || 0) >= 0 ? '#00ff88' : '#ff4757'
-                                }}>
-                                    {formatBRL(stats?.totalPnL || 0)}
-                                </div>
-                                <div className="metric-label">P&L Total</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="card">
-                        <h3>🎯 Histórico Recente</h3>
-                        {!signals || signals.length === 0 ? (
-                            <div style={{ textAlign: 'center', color: '#a0a0a0', padding: '20px' }}>
-                                Nenhum sinal ainda
-                            </div>
-                        ) : (
-                            <div>
-                                {signals.filter(s => s && s.status !== 'PENDENTE').map(signal => (
-                                    <div key={signal.id} style={{ 
-                                        padding: '15px', 
-                                        margin: '10px 0',
-                                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                                        borderRadius: '8px',
-                                        background: signal.status === 'ACERTO' ? 
-                                            'rgba(0, 255, 136, 0.1)' : 'rgba(255, 71, 87, 0.1)'
-                                    }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <div>
-                                                <strong>{signal.direction} {signal.symbol}</strong>
-                                                <span style={{ marginLeft: '10px', fontSize: '14px', color: '#a0a0a0' }}>
-                                                    Score: {signal.score}%
-                                                </span>
-                                            </div>
-                                            <div style={{ 
-                                                color: signal.status === 'ACERTO' ? '#00ff88' : '#ff4757',
-                                                fontWeight: 'bold'
-                                            }}>
-                                                {formatBRL(signal.pnl || 0)}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
-        }
-
-        function MLEngine({ alphaEngine, memoryDB }) {
-            const [weightsHistory, setWeightsHistory] = useState([]);
-
-            useEffect(() => {
-                const loadHistory = async () => {
-                    if (memoryDB) {
-                        const history = await memoryDB.getWeightsHistory();
-                        setWeightsHistory(history);
-                    }
-                };
-                loadHistory();
-            }, [memoryDB]);
-
-            if (!alphaEngine) return null;
-
-            const weights = alphaEngine.weights || {};
-
-            return (
-                <div>
-                    <div className="card">
-                        <h3>🧠 Pesos Adaptativos</h3>
-                        <div style={{ marginTop: '20px' }}>
-                            {Object.entries(weights).map(([indicator, weight]) => (
-                                <div key={indicator} className="weight-item">
-                                    <div>
-                                        <strong>{indicator.replace('_', ' ').toUpperCase()}</strong>
-                                        <br />
-                                        <small>{((weight || 0) * 100).toFixed(1)}%</small>
-                                    </div>
-                                    <div className="weight-bar">
-                                        <div 
-                                            className="weight-fill" 
-                                            style={{ width: `${(weight || 0) * 100}%` }}
-                                        ></div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
         function ConnectionsView({ apiManager, showNotification }) {
             const [selectedProvider, setSelectedProvider] = useState('BINANCE');
             const [apiKey, setApiKey] = useState('');
             const [secretKey, setSecretKey] = useState('');
             const [testing, setTesting] = useState(false);
             const [testResult, setTestResult] = useState(null);
+            const [updateTrigger, setUpdateTrigger] = useState(0);
 
             if (!apiManager) {
                 return <div className="card"><h3>⏳ Carregando...</h3></div>;
@@ -3601,6 +3710,7 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                         apiManager.updateStatus(selectedProvider, 'connected');
                         apiManager.setActive(selectedProvider);
                         showNotification('✅ Conexão estabelecida!');
+                        setUpdateTrigger(prev => prev + 1);
                     } else {
                         showNotification(`❌ ${result.message}`);
                     }
@@ -3614,6 +3724,7 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
             const handleDisconnect = (provider) => {
                 apiManager.removeConnection(provider);
                 showNotification('Conexão removida');
+                setUpdateTrigger(prev => prev + 1);
             };
 
             const connectedProviders = [];
@@ -3718,6 +3829,7 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                                                     onClick={() => {
                                                         apiManager.setActive(provider);
                                                         showNotification(`${providerInfo.name} ativado`);
+                                                        setUpdateTrigger(prev => prev + 1);
                                                     }}
                                                 >
                                                     ⚡ Ativar
@@ -3763,21 +3875,72 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                             Plataforma de trading algorítmico com Machine Learning e sistema de auditoria integrado.
                         </p>
                         <div style={{ marginTop: '15px', fontSize: '14px', color: '#00ff88' }}>
-                            Versão: 2.2.0 | Build: 2024.005 | Sistema de Auditoria Corrigido
+                            Versão: 2.3.0 | Build: 2024.006 | Atualização em Tempo Real Implementada
+                        </div>
+                        
+                        <div style={{ marginTop: '20px', padding: '15px', background: 'rgba(0, 255, 136, 0.1)', borderRadius: '8px', border: '1px solid rgba(0, 255, 136, 0.3)' }}>
+                            <h4 style={{ color: '#00ff88', marginBottom: '10px' }}>✨ Novidades v2.3</h4>
+                            <ul style={{ color: '#c0c0c0', lineHeight: '1.8', paddingLeft: '20px' }}>
+                                <li>✅ <strong>Atualização em tempo real</strong> de todas as métricas</li>
+                                <li>✅ <strong>Dashboard responsivo</strong> com dados sempre atualizados</li>
+                                <li>✅ <strong>Performance ao vivo</strong> sem necessidade de recarregar</li>
+                                <li>✅ <strong>ML Engine dinâmico</strong> com pesos adaptativos visíveis</li>
+                                <li>✅ <strong>Sistema de listeners</strong> para propagação de mudanças</li>
+                                <li>✅ <strong>Correções de bugs</strong> em cálculos de indicadores</li>
+                            </ul>
+                        </div>
+
+                        <div style={{ marginTop: '20px', padding: '15px', background: 'rgba(255, 193, 7, 0.1)', borderRadius: '8px', border: '1px solid rgba(255, 193, 7, 0.3)' }}>
+                            <h4 style={{ color: '#ffc107', marginBottom: '10px' }}>💡 Dicas de Uso</h4>
+                            <ul style={{ color: '#c0c0c0', lineHeight: '1.8', paddingLeft: '20px' }}>
+                                <li>Use o <strong>Modo Assistente</strong> para análise manual com alertas</li>
+                                <li>Use o <strong>Modo Robô</strong> para execução automática (DEMO)</li>
+                                <li>Conecte APIs reais para dados em tempo real</li>
+                                <li>Verifique a <strong>Auditoria</strong> para análise detalhada</li>
+                                <li>Digite <code>auditDiag()</code> no console para diagnóstico</li>
+                            </ul>
+                        </div>
+
+                        <div style={{ marginTop: '20px', padding: '15px', background: 'rgba(255, 71, 87, 0.1)', borderRadius: '8px', border: '1px solid rgba(255, 71, 87, 0.3)' }}>
+                            <h4 style={{ color: '#ff4757', marginBottom: '10px' }}>⚠️ Aviso Legal</h4>
+                            <p style={{ color: '#c0c0c0', lineHeight: '1.8', fontSize: '13px' }}>
+                                Este sistema é fornecido apenas para fins educacionais e de demonstração. 
+                                Trading de ativos financeiros envolve risco significativo de perda. 
+                                Não opere com capital que você não pode perder. 
+                                Os desenvolvedores não se responsabilizam por perdas financeiras.
+                            </p>
                         </div>
                     </div>
                 </div>
             );
         }
 
-        // Renderizar
+        /* ========================================
+           RENDERIZAÇÃO FINAL
+           ======================================== */
+
         try {
             const rootElement = document.getElementById('root');
             if (rootElement) {
                 ReactDOM.render(<App />, rootElement);
+                console.log('✅ Aplicação renderizada com sucesso!');
+                console.log('%c🎉 Alpha-Learner v2.3 Inicializado!', 'color: #00ff88; font-size: 16px; font-weight: bold;');
+                console.log('%c📊 Todas as métricas agora atualizam em tempo real', 'color: #00ff88;');
+                console.log('%c💡 Digite auditDiag() para diagnóstico do sistema', 'color: #ffc107;');
+            } else {
+                console.error('❌ Elemento root não encontrado!');
             }
         } catch (error) {
-            console.error('Erro ao renderizar:', error);
+            console.error('❌ Erro ao renderizar aplicação:', error);
+            document.getElementById('root').innerHTML = `
+                <div style="padding: 40px; text-align: center; color: #ff4757;">
+                    <h2>❌ Erro ao Inicializar</h2>
+                    <p>Verifique o console para mais detalhes</p>
+                    <pre style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-top: 20px; text-align: left;">
+                        ${error.message}
+                    </pre>
+                </div>
+            `;
         }
     </script>
 </body>
