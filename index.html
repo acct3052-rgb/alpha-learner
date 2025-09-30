@@ -2042,13 +2042,13 @@ class TPSLOptimizer {
             slMultiplier *= 1.1;
         }
         
-        const stopLoss = direction === 'BUY' 
+       const stopLoss = direction === 'BUY' 
             ? currentPrice - (atr * slMultiplier)
             : currentPrice + (atr * slMultiplier);
             
         const takeProfit = direction === 'BUY'
             ? currentPrice + (atr * tpMultiplier)
-            : currentPrice - (atr * tpMultiplier);
+            : Math.max(0.01, currentPrice - (atr * tpMultiplier)); // ✅ CORRIGIDO: evita valores negativos
         
         const adjustedLevels = this.adjustForSupport(currentPrice, stopLoss, takeProfit, prices, direction);
         
@@ -2236,24 +2236,29 @@ class TPSLOptimizer {
                 }
             }
 
-            analyzeMarket(marketData, dataSource) {
-                const prices = marketData.prices;
-                const currentPrice = marketData.getLatestPrice();
-                
-                const rsi = TechnicalIndicators.calculateRSI(prices);
-                const macd = TechnicalIndicators.calculateMACD(prices);
-                const bollinger = TechnicalIndicators.calculateBollingerBands(prices);
-                const stochastic = TechnicalIndicators.calculateStochastic(prices);
-                
-                const features = this.extractFeatures(currentPrice, rsi, macd, bollinger, stochastic);
-                const signal = this.generateSignal(features, currentPrice, dataSource);
+          analyzeMarket(marketData, dataSource) {
+    const prices = marketData.prices;
+    const currentPrice = marketData.getLatestPrice();
+    
+    const rsi = TechnicalIndicators.calculateRSI(prices);
+    const macd = TechnicalIndicators.calculateMACD(prices);
+    const bollinger = TechnicalIndicators.calculateBollingerBands(prices);
+    const stochastic = TechnicalIndicators.calculateStochastic(prices);
+    
+    // ✅ NOVOS INDICADORES ADICIONADOS
+    const volume = TechnicalIndicators.analyzeVolume(prices);
+    const obv = TechnicalIndicators.calculateOBV(prices);
+    const ichimoku = TechnicalIndicators.calculateIchimoku(prices);
+    const vwap = TechnicalIndicators.calculateVWAP(prices);
+    
+    const features = this.extractFeatures(currentPrice, rsi, macd, bollinger, stochastic, volume, obv, ichimoku, vwap);
                 
                 return signal;
             }
 
-            extractFeatures(currentPrice, rsi, macd, bollinger, stochastic) {
-                return {
-                    rsi: {
+            extractFeatures(currentPrice, rsi, macd, bollinger, stochastic, volume, obv, ichimoku, vwap) {
+    return {
+        rsi: {
                         value: rsi,
                         overbought: rsi > 70,
                         oversold: rsi < 30,
@@ -2272,16 +2277,33 @@ class TPSLOptimizer {
                         score: this.calculateBollingerScore(currentPrice.close, bollinger)
                     },
                     stochastic: {
-                        k: stochastic.k,
-                        d: stochastic.d,
-                        overbought: stochastic.k > 80,
-                        oversold: stochastic.k < 20,
-                        crossover: this.detectStochasticCrossover(stochastic),
-                        divergence: this.detectDivergence(),
-                        score: this.calculateStochasticScore(stochastic)
-                    }
-                };
-            }
+            k: stochastic.k,
+            d: stochastic.d,
+            overbought: stochastic.k > 80,
+            oversold: stochastic.k < 20,
+            crossover: this.detectStochasticCrossover(stochastic),
+            divergence: this.detectDivergence(),
+            score: this.calculateStochasticScore(stochastic)
+        },
+        // ✅ NOVOS INDICADORES ADICIONADOS
+        volume: {
+            value: volume,
+            score: this.calculateVolumeScore(volume)
+        },
+        obv: {
+            value: obv,
+            score: this.calculateOBVScore(obv)
+        },
+        ichimoku: {
+            value: ichimoku,
+            score: this.calculateIchimokuScore(ichimoku)
+        },
+        vwap: {
+            value: vwap,
+            score: this.calculateVWAPScore(vwap)
+        }
+    };
+}
 
             calculateRSIScore(rsi) {
                 if (rsi < 30) return 0.8;
@@ -2402,11 +2424,11 @@ calculateVolumeScore(volume) {
                             indicatorScore = features.stochastic.score;
                             break;
                         case 'stochastic_divergence':
-                            if (features.stochastic.divergence.present) {
-                                indicatorScore = features.stochastic.divergence.type === 'bullish' ? 0.8 : -0.8;
-                                indicatorScore *= features.stochastic.divergence.strength;
-                                }  
-                          break;
+                if (features.stochastic.divergence.present) {
+                    indicatorScore = features.stochastic.divergence.type === 'bullish' ? 0.8 : -0.8;
+                    indicatorScore *= features.stochastic.divergence.strength;
+                }
+                break; // ✅ CORRIGIDO: break no lugar certo
                         case 'volume':
                             indicatorScore = features.volume.score;
                             break;
@@ -2417,9 +2439,9 @@ calculateVolumeScore(volume) {
                             indicatorScore = features.ichimoku.score;
                             break;
                         case 'vwap':
-                            indicatorScore = features.vwap.score;
-                            break;
-                            }
+                indicatorScore = features.vwap.score;
+                break;
+        } // ✅ CORRIGIDO: fechamento do switch
                           
                     
                     
@@ -2448,7 +2470,7 @@ calculateVolumeScore(volume) {
                 riskReward: 2.0
             };
         
-        const timeframeMinutes = direction === 'BUY' ? 5 : 15;
+       const timeframeMinutes = 5; // ✅ CORRIGIDO: timeframe fixo de 5 minutos
                 const entryTime = new Date();
                 entryTime.setMinutes(entryTime.getMinutes() + Math.floor(Math.random() * timeframeMinutes) + 1);
                 
@@ -3104,6 +3126,14 @@ calculateVolumeScore(volume) {
             useEffect(() => {
                 try {
                     console.log('🚀 Inicializando sistema...');
+                    // ✅ SOLICITAR PERMISSÃO PARA NOTIFICAÇÕES
+                if ("Notification" in window && Notification.permission === "default") {
+                    Notification.requestPermission().then(permission => {
+                        if (permission === "granted") {
+                            console.log('✅ Permissão para notificações concedida');
+                        }
+                    });
+                }
                     
                     const savedConfig = localStorage.getItem('alpha_config');
                     if (savedConfig) {
@@ -3193,6 +3223,19 @@ calculateVolumeScore(volume) {
                 } catch (error) {
                     console.error('❌ Erro na inicialização:', error);
                 }
+            }, []);
+
+            // ✅ LIMPEZA DE TIMERS AO DESMONTAR
+            useEffect(() => {
+                return () => {
+                    // Limpar todos os timers de verificação
+                    verificationTimers.current.forEach((timerData) => {
+                        if (timerData.timer) clearTimeout(timerData.timer);
+                        if (timerData.interval) clearInterval(timerData.interval);
+                    });
+                    verificationTimers.current.clear();
+                    console.log('🧹 Timers limpos ao desmontar componente');
+                };
             }, []);
 
             useEffect(() => {
@@ -3334,7 +3377,7 @@ calculateVolumeScore(volume) {
                 }, 30000);
 
                 return () => clearInterval(interval);
-            }, [isActive, marketData, alphaEngine, minScore, apiManager, dataSource, mode, riskAmount]);
+            }, [isActive, marketData, alphaEngine, minScore, apiManager, dataSource, mode, riskAmount, orderExecutor]); // ✅ ADICIONADO: orderExecutor
 
             useEffect(() => {
                 if (!isActive) return;
@@ -3545,8 +3588,22 @@ calculateVolumeScore(volume) {
             const showNotification = (message) => {
                 try {
                     if (!message) return;
+                    
+                    // Toast na interface
                     setNotification(message);
                     setTimeout(() => setNotification(null), 3000);
+                    
+                    // ✅ NOTIFICAÇÃO NATIVA DO NAVEGADOR
+                    if ("Notification" in window && Notification.permission === "granted") {
+                        new Notification("⚡ Alpha-Learner", {
+                            body: message,
+                            icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='75' font-size='75'>⚡</text></svg>",
+                            badge: "⚡",
+                            tag: "alpha-learner",
+                            requireInteraction: false,
+                            silent: false
+                        });
+                    }
                 } catch (error) {
                     console.log('Erro ao mostrar notificação:', error);
                 }
@@ -4340,6 +4397,12 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                     <div className="warning-box">
                         ⚠️ <strong>Painel do Robô:</strong> Sistema de execução automática para conta DEMO. 
                         Todas as ordens são executadas em ambiente de testes.
+                    </div>
+
+                    <div className="warning-box" style={{ background: 'rgba(255, 193, 7, 0.1)', borderColor: 'rgba(255, 193, 7, 0.3)' }}>
+                        ℹ️ <strong>Aviso:</strong> Os dados não são salvos permanentemente. 
+                        Todas as configurações e histórico são mantidos apenas durante a sessão atual. 
+                        Ao recarregar a página, os dados serão perdidos.
                     </div>
 
                     <div className="grid">
@@ -6035,6 +6098,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
