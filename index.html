@@ -3068,7 +3068,7 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                         </div>
                     </div>
                     
-                    <div>
+                    <div
                         <span className="signal-score">Score: {signal.score || 0}%</span>
                         <span className={`signal-status ${signal.status?.toLowerCase() || 'pending'}`}>
                             {signal.status === 'ACERTO' && '✅ ACERTO'}
@@ -3945,3 +3945,4 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
     </script>
 </body>
 </html>
+
