@@ -2405,6 +2405,8 @@ calculateVolumeScore(volume) {
                             if (features.stochastic.divergence.present) {
                                 indicatorScore = features.stochastic.divergence.type === 'bullish' ? 0.8 : -0.8;
                                 indicatorScore *= features.stochastic.divergence.strength;
+                                }  
+                          break;
                         case 'volume':
                             indicatorScore = features.volume.score;
                             break;
@@ -6033,6 +6035,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
