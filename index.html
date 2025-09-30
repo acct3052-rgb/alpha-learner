@@ -3545,13 +3545,15 @@ useEffect(() => {
                         await alphaEngine.learnFromTrade(signal, result);
                     }
 
-                    setSignals(prev => prev.map(s => 
-                        
+                    setSignals(prevSignals => {
+    // Usamos .map() para criar um NOVO array. Isso é crucial para o React detectar a mudança.
     return prevSignals.map(s => {
+        // Se o ID do sinal no array for o mesmo que o sinal que estamos processando...
         if (s.id === signal.id) {
-            // Retorna um novo objeto para o sinal atualizado
+            // ...retornamos um NOVO objeto com as propriedades atualizadas.
             return { ...s, status: result, pnl, finalPrice: currentPrice };
         }
+        // Caso contrário, apenas retornamos o sinal original sem modificação.
         return s;
     });
 });
@@ -6122,6 +6124,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
