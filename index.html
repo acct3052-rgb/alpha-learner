@@ -3122,6 +3122,16 @@ calculateVolumeScore(volume) {
             const auditSystemRef = useRef(null);
             const orderExecutorRef = useRef(null);
             const verificationTimers = useRef(new Map());
+            const minScoreRef = useRef(minScore);
+const modeRef = useRef(mode);
+
+useEffect(() => {
+    minScoreRef.current = minScore;
+}, [minScore]);
+
+useEffect(() => {
+    modeRef.current = mode;
+}, [mode]);
 
             useEffect(() => {
                 try {
@@ -3332,7 +3342,7 @@ calculateVolumeScore(volume) {
                         
                         const signal = alphaEngine.analyzeMarket(marketData, currentDataSource);
                         
-                        if (signal && signal.score >= minScore) {
+                        if (signal && signal.score >= minScoreRef.current) {
                             setSignals(prev => [signal, ...prev.slice(0, 9)]);
                             showNotification(`Novo sinal ${signal.direction} - Score: ${signal.score}%`);
                             playAlert();
@@ -3342,7 +3352,7 @@ calculateVolumeScore(volume) {
                                 window.telegramNotifier.notifySignal(signal);
                             }
                             
-                            if (mode === 'auto' && orderExecutorRef.current) {
+                            if (modeRef.current === 'auto' && orderExecutorRef.current) {
                                 const executionResult = await orderExecutorRef.current.executeSignalAuto(
                                     signal,
                                     mode,
@@ -6098,6 +6108,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
