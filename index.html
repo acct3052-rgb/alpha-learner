@@ -2252,9 +2252,12 @@ class TPSLOptimizer {
     const vwap = TechnicalIndicators.calculateVWAP(prices);
     
     const features = this.extractFeatures(currentPrice, rsi, macd, bollinger, stochastic, volume, obv, ichimoku, vwap);
-                
-                return signal;
-            }
+    
+    // ✅ CORRIGIDO: Agora gera e retorna o sinal
+    const signal = this.generateSignal(features, currentPrice, dataSource);
+    
+    return signal;
+}
 
             extractFeatures(currentPrice, rsi, macd, bollinger, stochastic, volume, obv, ichimoku, vwap) {
     return {
@@ -6126,6 +6129,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
