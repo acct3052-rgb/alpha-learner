@@ -3444,11 +3444,7 @@ useEffect(() => {
         if (auditSystemRef.current) auditSystemRef.current.removeChangeListener(() => setUpdateTrigger(prev => prev + 1));
     };
 }, []);
-                
-            } catch (error) {
-                console.error('❌ Erro na inicialização:', error);
-            }
-        }, []);
+            
 
             // ✅ LIMPEZA DE TIMERS AO DESMONTAR
             useEffect(() => {
@@ -6341,6 +6337,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
