@@ -592,17 +592,17 @@
             }
         };
 
-        class APIConnectionManager {
+       class APIConnectionManager {
     constructor() {
         this.connections = new Map();
         this.activeProvider = null;
         this.isInitialized = false;
-        this.isLoading = false; // ✅ ADICIONE
-        this.loadFromStorage(); // Inicia carregamento mas não bloqueia
+        this.isLoading = false;
+        this.loadFromStorage(); // Inicia carregamento
     }
 
     async loadFromStorage() {
-        if (this.isLoading) return; // Evita múltiplas chamadas
+        if (this.isLoading) return;
         this.isLoading = true;
         
         try {
@@ -612,7 +612,6 @@
                 .eq('id', 1)
                 .single();
             
-            // Se a tabela não existir ou não houver dados, apenas inicializa vazio
             if (error) {
                 if (error.code === 'PGRST116') {
                     console.log('⚠️ Nenhuma conexão salva ainda');
@@ -641,7 +640,6 @@
     }
 
     async ensureInitialized() {
-        // Espera até 5 segundos pela inicialização
         let attempts = 0;
         while (!this.isInitialized && attempts < 50) {
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -650,10 +648,75 @@
         
         if (!this.isInitialized) {
             console.error('⚠️ Timeout esperando inicialização do APIManager');
-            this.isInitialized = true; // Força inicialização para não travar
+            this.isInitialized = true;
         }
     }
+
+    // ✅ ADICIONAR ESTES MÉTODOS:
+    
+    async saveToStorage() {
+        try {
+            const connectionsObj = Object.fromEntries(this.connections);
+            
+            const { error } = await supabase
+                .from('api_connections')
+                .upsert({
+                    id: 1,
+                    connections: connectionsObj,
+                    active_provider: this.activeProvider
+                });
+            
+            if (error) throw error;
+            console.log('💾 Conexões salvas no Supabase');
+        } catch (error) {
+            console.error('❌ Erro ao salvar conexões:', error);
         }
+    }
+
+    addConnection(provider, apiKey, secretKey = null) {
+        this.connections.set(provider, {
+            provider,
+            apiKey,
+            secretKey,
+            status: 'disconnected',
+            addedAt: new Date().toISOString()
+        });
+        this.saveToStorage();
+    }
+
+    updateStatus(provider, status) {
+        const conn = this.connections.get(provider);
+        if (conn) {
+            conn.status = status;
+            this.connections.set(provider, conn);
+            this.saveToStorage();
+        }
+    }
+
+    setActive(provider) {
+        if (this.connections.has(provider)) {
+            this.activeProvider = provider;
+            this.saveToStorage();
+        }
+    }
+
+    getActiveConnection() {
+        if (!this.activeProvider) return null;
+        return this.connections.get(this.activeProvider);
+    }
+
+    removeConnection(provider) {
+        this.connections.delete(provider);
+        if (this.activeProvider === provider) {
+            this.activeProvider = null;
+        }
+        this.saveToStorage();
+    }
+
+    getAllConnections() {
+        return Array.from(this.connections.values());
+    }
+}
 
         /* Continua na PARTE 2... */
 
@@ -1133,7 +1196,23 @@
         this.isInitialized = false;
         this.loadFromStorage();
     }
+ addChangeListener(callback) {
+        this.listeners.add(callback);
+    }
 
+    removeChangeListener(callback) {
+        this.listeners.delete(callback);
+    }
+
+    notifyChange() {
+        this.listeners.forEach(callback => {
+            try {
+                callback();
+            } catch (error) {
+                console.error('Erro ao notificar listener:', error);
+            }
+        });
+    }
     // ✅ ADICIONE ESTE MÉTODO AQUI
     async init() {
         if (this.isInitialized) return;
@@ -5093,6 +5172,26 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
             const [testResult, setTestResult] = useState(null);
             const [updateTrigger, setUpdateTrigger] = useState(0);
 
+
+            // ✅ ADICIONE ESTE useEffect:
+    useEffect(() => {
+        const initialize = async () => {
+            if (apiManager) {
+                await apiManager.ensureInitialized();
+                setIsReady(true);
+            }
+        };
+        initialize();
+    }, [apiManager]);
+
+    if (!apiManager || !isReady) { // ✅ MODIFICADO
+        return (
+            <div className="card">
+                <h3>⏳ Carregando conexões...</h3>
+                <p>Aguarde enquanto carregamos seus dados do Supabase...</p>
+            </div>
+        );
+    }
             if (!apiManager) {
                 return <div className="card"><h3>⏳ Carregando...</h3></div>;
             }
@@ -6337,6 +6436,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
