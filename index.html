@@ -534,10 +534,15 @@
         // ✅ CONFIGURAÇÃO SUPABASE
         // ========================================
         
-        // ⚠️ SUBSTITUA PELOS SEUS VALORES DO PASSO 1.3
-        const SUPABASE_URL = 'https://gvgxiketszcvskrwlrcp.supabase.co'; // ← COLE SEU URL AQUI
-        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2Z3hpa2V0c3pjdnNrcndscmNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyNjQ4ODYsImV4cCI6MjA3NDg0MDg4Nn0.8H2Ys0mMKJQIydkrHzORK0mvkStgRR1lmpPutwE1rvE'; // ← COLE SUA KEY AQUI
-        
+        // ⚠️ CONFIGURE AS VARIÁVEIS DE AMBIENTE OU ARQUIVO .ENV
+        // Para desenvolvimento local, crie um arquivo config.js ou use variáveis de ambiente
+        const SUPABASE_URL = process.env.SUPABASE_URL || prompt('Enter your Supabase URL:');
+        const SUPABASE_KEY = process.env.SUPABASE_KEY || prompt('Enter your Supabase Anon Key:');
+
+        if (!SUPABASE_URL || !SUPABASE_KEY) {
+            throw new Error('❌ Supabase credentials are required. Please configure environment variables.');
+        }
+
         // Criar cliente Supabase
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         
@@ -724,7 +729,73 @@
            FUNÇÕES DE API
            ======================================== */
 
+        // Rate Limiter Class
+        class RateLimiter {
+            constructor() {
+                this.limits = {
+                    'ALPHA_VANTAGE': { calls: 0, maxCalls: 5, windowMs: 60000, lastReset: Date.now() },
+                    'BINANCE': { calls: 0, maxCalls: 1200, windowMs: 60000, lastReset: Date.now() },
+                    'COINGECKO': { calls: 0, maxCalls: 50, windowMs: 60000, lastReset: Date.now() },
+                    'POLYGON': { calls: 0, maxCalls: 5, windowMs: 60000, lastReset: Date.now() }
+                };
+            }
+
+            async checkLimit(provider) {
+                const limit = this.limits[provider];
+                if (!limit) return true;
+
+                const now = Date.now();
+                if (now - limit.lastReset >= limit.windowMs) {
+                    limit.calls = 0;
+                    limit.lastReset = now;
+                }
+
+                if (limit.calls >= limit.maxCalls) {
+                    const waitTime = limit.windowMs - (now - limit.lastReset);
+                    console.warn(`⚠️ Rate limit reached for ${provider}. Waiting ${waitTime}ms`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                    limit.calls = 0;
+                    limit.lastReset = Date.now();
+                }
+
+                limit.calls++;
+                return true;
+            }
+
+            reset(provider) {
+                if (this.limits[provider]) {
+                    this.limits[provider].calls = 0;
+                    this.limits[provider].lastReset = Date.now();
+                }
+            }
+        }
+
+        const rateLimiter = new RateLimiter();
+
+        // Retry logic with exponential backoff
+        async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 1000) {
+            let lastError;
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    return await fn();
+                } catch (error) {
+                    lastError = error;
+                    if (attempt < maxRetries - 1) {
+                        const delay = baseDelay * Math.pow(2, attempt);
+                        console.warn(`⚠️ Attempt ${attempt + 1} failed. Retrying in ${delay}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    }
+                }
+            }
+            throw lastError;
+        }
+
         async function fetchRealMarketData(provider, apiKey, symbol, timeframe, secretKey = null) {
+            // Check rate limit before making request
+            await rateLimiter.checkLimit(provider);
+
+            // Wrap the fetch logic in retry mechanism
+            return retryWithBackoff(async () => {
             try {
                 let url, response, data;
 
@@ -790,6 +861,7 @@
                 console.error('Erro ao buscar dados reais:', error);
                 throw error;
             }
+            }); // End of retryWithBackoff
         }
 
         function parseAlphaVantageData(data, interval) {
@@ -850,6 +922,45 @@
                 close: candle.c,
                 volume: candle.v
             }));
+        }
+
+        function validateAPIKey(provider, apiKey, secretKey = null) {
+            const errors = [];
+
+            switch(provider) {
+                case 'ALPHA_VANTAGE':
+                    // Alpha Vantage keys are typically 16 alphanumeric characters
+                    if (!/^[A-Z0-9]{16}$/i.test(apiKey)) {
+                        errors.push('Alpha Vantage API key should be 16 alphanumeric characters');
+                    }
+                    break;
+
+                case 'BINANCE':
+                    // Binance API keys are 64 characters
+                    if (!/^[A-Za-z0-9]{64}$/.test(apiKey)) {
+                        errors.push('Binance API key should be 64 alphanumeric characters');
+                    }
+                    if (secretKey && !/^[A-Za-z0-9]{64}$/.test(secretKey)) {
+                        errors.push('Binance Secret key should be 64 alphanumeric characters');
+                    }
+                    break;
+
+                case 'POLYGON':
+                    // Polygon keys are typically 32 alphanumeric characters
+                    if (!/^[A-Za-z0-9_-]{20,40}$/.test(apiKey)) {
+                        errors.push('Polygon API key format appears invalid');
+                    }
+                    break;
+
+                case 'COINGECKO':
+                    // CoinGecko Pro API keys (free tier doesn't require key)
+                    if (apiKey && apiKey.trim() && !/^CG-[A-Za-z0-9]{20,}$/.test(apiKey)) {
+                        errors.push('CoinGecko Pro API key should start with "CG-"');
+                    }
+                    break;
+            }
+
+            return errors;
         }
 
         async function testAPIConnection(provider, apiKey, secretKey = null) {
@@ -1996,13 +2107,31 @@
             }
 
             static calculateMACD(prices, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
-                if (prices.length < slowPeriod) return { macd: 0, signal: 0, histogram: 0 };
-                
-                const fastEMA = this.calculateEMA(prices.slice(-fastPeriod).map(p => p.close), fastPeriod);
-                const slowEMA = this.calculateEMA(prices.slice(-slowPeriod).map(p => p.close), slowPeriod);
-                const macd = fastEMA - slowEMA;
-                
-                return { macd, signal: macd * 0.9, histogram: macd * 0.1 };
+                if (prices.length < slowPeriod + signalPeriod) return { macd: 0, signal: 0, histogram: 0 };
+
+                // Calculate MACD line (difference between fast and slow EMA)
+                const closePrices = prices.map(p => p.close);
+                const fastEMA = this.calculateEMA(closePrices.slice(-slowPeriod), fastPeriod);
+                const slowEMA = this.calculateEMA(closePrices.slice(-slowPeriod), slowPeriod);
+                const macdLine = fastEMA - slowEMA;
+
+                // Calculate signal line (EMA of MACD line)
+                // For proper calculation, we need to calculate MACD values for multiple periods
+                const macdValues = [];
+                for (let i = slowPeriod; i <= prices.length; i++) {
+                    const subset = closePrices.slice(i - slowPeriod, i);
+                    const fEMA = this.calculateEMA(subset, fastPeriod);
+                    const sEMA = this.calculateEMA(subset, slowPeriod);
+                    macdValues.push(fEMA - sEMA);
+                }
+
+                const signalLine = macdValues.length >= signalPeriod
+                    ? this.calculateEMA(macdValues.slice(-signalPeriod), signalPeriod)
+                    : macdLine;
+
+                const histogram = macdLine - signalLine;
+
+                return { macd: macdLine, signal: signalLine, histogram };
             }
 
             static calculateEMA(values, period) {
@@ -2534,27 +2663,35 @@ class TPSLOptimizer {
           analyzeMarket(marketData, dataSource) {
     const prices = marketData.prices;
     const currentPrice = marketData.getLatestPrice();
-    
+
     const rsi = TechnicalIndicators.calculateRSI(prices);
     const macd = TechnicalIndicators.calculateMACD(prices);
     const bollinger = TechnicalIndicators.calculateBollingerBands(prices);
     const stochastic = TechnicalIndicators.calculateStochastic(prices);
-    
+
     // ✅ NOVOS INDICADORES ADICIONADOS
     const volume = TechnicalIndicators.analyzeVolume(prices);
     const obv = TechnicalIndicators.calculateOBV(prices);
     const ichimoku = TechnicalIndicators.calculateIchimoku(prices);
     const vwap = TechnicalIndicators.calculateVWAP(prices);
-    
-    const features = this.extractFeatures(currentPrice, rsi, macd, bollinger, stochastic, volume, obv, ichimoku, vwap);
-    
+
+    // Calculate RSI values for divergence detection
+    const rsiValues = [];
+    if (prices.length >= 14) {
+        for (let i = 14; i <= prices.length; i++) {
+            rsiValues.push(TechnicalIndicators.calculateRSI(prices.slice(0, i)));
+        }
+    }
+
+    const features = this.extractFeatures(currentPrice, rsi, macd, bollinger, stochastic, volume, obv, ichimoku, vwap, prices, rsiValues);
+
     // ✅ CORRIGIDO: Agora gera e retorna o sinal
     const signal = this.generateSignal(features, currentPrice, dataSource);
-    
+
     return signal;
 }
 
-          extractFeatures(currentPrice, rsi, macd, bollinger, stochastic, volume, obv, ichimoku, vwap) {
+          extractFeatures(currentPrice, rsi, macd, bollinger, stochastic, volume, obv, ichimoku, vwap, prices, rsiValues) {
     return {
         rsi: {
             value: rsi,
@@ -2580,7 +2717,7 @@ class TPSLOptimizer {
             overbought: stochastic.k > 80,
             oversold: stochastic.k < 20,
             crossover: this.detectStochasticCrossover(stochastic),
-            divergence: this.detectDivergence(),
+            divergence: this.detectDivergence(prices, rsiValues),
             score: this.calculateStochasticScore(stochastic)
         },
         volume: {
@@ -2636,12 +2773,48 @@ class TPSLOptimizer {
                 return Math.abs(stochastic.k - stochastic.d) < 5;
             }
 
-            detectDivergence() {
-                return {
-                    present: Math.random() < 0.3,
-                    type: Math.random() > 0.5 ? 'bullish' : 'bearish',
-                    strength: Math.random() * 0.5 + 0.5
-                };
+            detectDivergence(prices, rsiValues) {
+                // Requires at least 10 data points for meaningful divergence detection
+                if (!prices || !rsiValues || prices.length < 10 || rsiValues.length < 10) {
+                    return { present: false, type: null, strength: 0 };
+                }
+
+                // Analyze last 10 periods
+                const recentPrices = prices.slice(-10);
+                const recentRSI = rsiValues.slice(-10);
+
+                // Find price highs/lows and RSI highs/lows
+                const priceHigh = Math.max(...recentPrices.map(p => p.high));
+                const priceLow = Math.min(...recentPrices.map(p => p.low));
+                const rsiHigh = Math.max(...recentRSI);
+                const rsiLow = Math.min(...recentRSI);
+
+                const priceHighIdx = recentPrices.findIndex(p => p.high === priceHigh);
+                const priceLowIdx = recentPrices.findIndex(p => p.low === priceLow);
+                const rsiHighIdx = recentRSI.indexOf(rsiHigh);
+                const rsiLowIdx = recentRSI.indexOf(rsiLow);
+
+                // Bullish divergence: price makes lower low, but RSI makes higher low
+                const bullishDivergence = priceLowIdx > 3 && rsiLowIdx > 3 &&
+                    recentPrices[priceLowIdx].low < recentPrices[3].low &&
+                    recentRSI[rsiLowIdx] > recentRSI[3];
+
+                // Bearish divergence: price makes higher high, but RSI makes lower high
+                const bearishDivergence = priceHighIdx > 3 && rsiHighIdx > 3 &&
+                    recentPrices[priceHighIdx].high > recentPrices[3].high &&
+                    recentRSI[rsiHighIdx] < recentRSI[3];
+
+                if (bullishDivergence) {
+                    const strength = Math.min(1, Math.abs(recentRSI[rsiLowIdx] - recentRSI[3]) / 20);
+                    return { present: true, type: 'bullish', strength: 0.5 + strength * 0.5 };
+                }
+
+                if (bearishDivergence) {
+                    const strength = Math.min(1, Math.abs(recentRSI[rsiHighIdx] - recentRSI[3]) / 20);
+                    return { present: true, type: 'bearish', strength: 0.5 + strength * 0.5 };
+                }
+
+                return { present: false, type: null, strength: 0 };
             }
 calculateVolumeScore(volume) {
                 let score = 0;
@@ -3679,16 +3852,28 @@ useEffect(() => {
 
     } catch (error) { // <--- Agora o CATCH está correto
         console.error('❌ [LOOP] Erro:', error);
+        showNotification(`⚠️ Erro no loop principal: ${error.message}`);
+
+        // Fallback para dados simulados se erro persistir
+        if (currentDataSource === 'REAL') {
+            console.warn('⚠️ Erro crítico com dados reais, voltando para simulação');
+            marketData.generateInitialData();
+            currentDataSource = 'SIMULADO';
+            setDataSource('SIMULADO');
+        }
     }
 }, 30000);
                 return () => clearInterval(interval);
-            }, [isActive, marketData, alphaEngine, minScore, apiManager, dataSource, mode, riskAmount, orderExecutor]); // ✅ ADICIONADO: orderExecutor
+            }, [isActive, marketData, alphaEngine, apiManager, dataSource, orderExecutor]); // Fixed: removed minScore, mode, riskAmount (using refs)
+
+            // Optimized: Use a separate state for countdown timestamp instead of forcing re-render of all signals
+            const [currentTime, setCurrentTime] = useState(Date.now());
 
             useEffect(() => {
                 if (!isActive) return;
-                
+
                 const countdownInterval = setInterval(() => {
-                    setSignals(prev => [...prev]);
+                    setCurrentTime(Date.now());
                 }, 1000);
 
                 return () => clearInterval(countdownInterval);
@@ -3847,9 +4032,6 @@ useEffect(() => {
         return s;
     });
 });
-                       // Substitua o bloco problemático por esta única linha de código:
-
-setSignals(prev => prev.map(s => s.id === signal.id ? { ...s, status: result, pnl, finalPrice: currentPrice } : s));
 
 
                     showNotification(
@@ -5171,6 +5353,7 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
             const [testing, setTesting] = useState(false);
             const [testResult, setTestResult] = useState(null);
             const [updateTrigger, setUpdateTrigger] = useState(0);
+            const [isReady, setIsReady] = useState(false);
 
 
             // ✅ ADICIONE ESTE useEffect:
@@ -5199,6 +5382,13 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
             const handleTest = async () => {
                 if (!apiKey.trim()) {
                     showNotification('Insira a API Key');
+                    return;
+                }
+
+                // Validate API key format
+                const validationErrors = validateAPIKey(selectedProvider, apiKey, secretKey);
+                if (validationErrors.length > 0) {
+                    showNotification(`❌ ${validationErrors.join(', ')}`);
                     return;
                 }
 
