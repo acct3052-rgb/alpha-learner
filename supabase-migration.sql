@@ -47,11 +47,13 @@ CREATE TABLE IF NOT EXISTS public.signals (
     status TEXT DEFAULT 'PENDENTE',
     pnl DECIMAL(15, 2) DEFAULT 0,
     final_price DECIMAL(15, 8),
+    entry_time TIMESTAMP WITH TIME ZONE,
     closed_at TIMESTAMP WITH TIME ZONE,
     data_source TEXT,
     divergence JSONB,
     contributors JSONB,
     features JSONB,
+    executed BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
@@ -85,6 +87,7 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
     hour_of_day INTEGER,
     outcome TEXT,
     outcome_time TIMESTAMP WITH TIME ZONE,
+    reason TEXT,
     metadata JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     FOREIGN KEY (signal_id) REFERENCES public.signals(id) ON DELETE CASCADE

@@ -138,10 +138,21 @@ let SUPABASE_KEY = 'your-anon-key-here';
 | Table | Purpose | Key Fields |
 |-------|---------|------------|
 | **api_connections** | API provider configs | connections (JSONB), active_provider |
-| **signals** | Trading signals history | symbol, direction, score, price, status, pnl |
-| **ml_weights_evolution** | ML weight snapshots | weights (JSONB), performance, win_rate |
-| **audit_logs** | Signal generation audit trail | signal_id, indicators, outcome |
+| **signals** | Trading signals history | symbol, direction, score, price, status, pnl, **entry_time**, **executed** |
+| **ml_weights_evolution** | ML weight snapshots | weights (JSONB), performance, win_rate, timestamp |
+| **audit_logs** | Signal generation audit trail | signal_id, indicators, outcome, **reason** |
 | **performance_stats** | Aggregated statistics | stat_type, wins, losses, total_pnl |
+
+### Important Schema Notes
+
+**signals table** includes:
+- `entry_time`: Timestamp when the signal was executed/entered
+- `executed`: Boolean flag indicating if the signal has been executed
+- All fields match the JavaScript code that saves signals (line 1915-1936 in index.html)
+
+**audit_logs table** includes:
+- `reason`: Text field for storing the reason for signal outcome
+- All fields match the JavaScript code that saves audit logs (line 1427-1439 in index.html)
 
 ---
 
