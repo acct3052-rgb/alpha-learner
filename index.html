@@ -1404,10 +1404,11 @@
             }
 
             this.isInitialized = true;
-            console.log('✅ AuditSystem carregado do Supabase:', this.auditLogs.length, 'logs');
+            console.log('✅ AuditSystem carregado do Supabase:', this.auditLogs.length, 'logs de auditoria');
 
         } catch (error) {
             console.error('❌ Erro ao carregar AuditSystem:', error);
+            console.log('ℹ️ Continuando com sistema de auditoria vazio');
             this.isInitialized = true;
         }
     }
@@ -1867,19 +1868,24 @@
                         .order('timestamp', { ascending: false })
                         .limit(50);
 
-                    if (weightsError) throw weightsError;
-
-                    this.ml_weights_evolution = (weights || []).map(w => ({
-                        date: w.timestamp,
-                        weights: w.weights,
-                        performance: w.performance
-                    }));
+                    if (weightsError) {
+                        console.warn('⚠️ Erro ao carregar ml_weights_evolution:', weightsError.message);
+                        console.log('ℹ️ Iniciando com histórico vazio de pesos ML');
+                    } else {
+                        this.ml_weights_evolution = (weights || []).map(w => ({
+                            date: w.timestamp,
+                            weights: w.weights,
+                            performance: w.performance
+                        }));
+                        console.log('✅ Carregados', this.ml_weights_evolution.length, 'snapshots de pesos ML');
+                    }
 
                     this.isInitialized = true;
                     console.log('✅ MemoryDB carregado do Supabase:', this.signals_history.length, 'sinais');
 
                 } catch (error) {
                     console.error('❌ Erro ao carregar MemoryDB:', error);
+                    console.log('ℹ️ Continuando com dados vazios');
                     this.isInitialized = true; // Continuar mesmo com erro
                 }
             }
@@ -3700,6 +3706,8 @@ useEffect(() => {
             
         } catch (error) {
             console.error('❌ Erro na inicialização:', error);
+            console.log('ℹ️ Alguns componentes podem não estar disponíveis');
+            console.log('💡 Verifique se o Supabase está configurado corretamente');
         }
     };
 
