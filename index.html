@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alpha-Learner Trading Platform v2.3</title>
+    <title>Alpha-Learner Trading Platform v2.4</title>
     <script src="config.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -6619,9 +6619,11 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
         try {
             const rootElement = document.getElementById('root');
             if (rootElement) {
-                ReactDOM.render(<App />, rootElement);
+                // Use React 18 createRoot API instead of deprecated render
+                const root = ReactDOM.createRoot(rootElement);
+                root.render(<App />);
                 console.log('✅ Aplicação renderizada com sucesso!');
-                console.log('%c🎉 Alpha-Learner v2.3 Inicializado!', 'color: #00ff88; font-size: 16px; font-weight: bold;');
+                console.log('%c🎉 Alpha-Learner v2.4 Inicializado!', 'color: #00ff88; font-size: 16px; font-weight: bold;');
                 console.log('%c📊 Todas as métricas agora atualizam em tempo real', 'color: #00ff88;');
                 console.log('%c💡 Digite auditDiag() para diagnóstico do sistema', 'color: #ffc107;');
             } else {
@@ -6629,15 +6631,18 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
             }
         } catch (error) {
             console.error('❌ Erro ao renderizar aplicação:', error);
-            document.getElementById('root').innerHTML = `
-                <div style="padding: 40px; text-align: center; color: #ff4757;">
-                    <h2>❌ Erro ao Inicializar</h2>
-                    <p>Verifique o console para mais detalhes</p>
-                    <pre style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-top: 20px; text-align: left;">
-                        ${error.message}
-                    </pre>
-                </div>
-            `;
+            const rootElement = document.getElementById('root');
+            if (rootElement) {
+                rootElement.innerHTML = `
+                    <div style="padding: 40px; text-align: center; color: #ff4757;">
+                        <h2>❌ Erro ao Inicializar</h2>
+                        <p>Verifique o console para mais detalhes</p>
+                        <pre style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-top: 20px; text-align: left;">
+                            ${error.message}
+                        </pre>
+                    </div>
+                `;
+            }
         }
     </script>
 </body>
