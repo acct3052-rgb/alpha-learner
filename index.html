@@ -1321,9 +1321,10 @@
         this.indicatorPerformance = {};
         this.listeners = new Set();
         this.isInitialized = false;
-        this.loadFromStorage();
+        // Don't call async method in constructor - will be called explicitly
     }
- addChangeListener(callback) {
+
+    addChangeListener(callback) {
         this.listeners.add(callback);
     }
 
@@ -1863,13 +1864,13 @@
                     const { data: weights, error: weightsError } = await supabase
                         .from('ml_weights_evolution')
                         .select('*')
-                        .order('created_at', { ascending: false })
+                        .order('timestamp', { ascending: false })
                         .limit(50);
 
                     if (weightsError) throw weightsError;
 
                     this.ml_weights_evolution = (weights || []).map(w => ({
-                        date: w.created_at,
+                        date: w.timestamp,
                         weights: w.weights,
                         performance: w.performance
                     }));
