@@ -4212,6 +4212,10 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                                 orderExecutor={orderExecutor}
                                 mode={mode}
                                 updateTrigger={updateTrigger}
+                                assetType={assetType}
+                                setAssetType={setAssetType}
+                                symbol={symbol}
+                                setSymbol={setSymbol}
                             />
                         )}
                         
@@ -4385,11 +4389,9 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
 
         /* COMPONENTES REACT - Dashboard e Performance (COM ATUALIZAÇÃO EM TEMPO REAL) */
 
-        function Dashboard({ signals, alphaEngine, minScore, setMinScore, dismissSignal, copySignalDetails, riskAmount, setRiskAmount, maxPositions, setMaxPositions, formatBRL, orderExecutor, mode, updateTrigger }) {
+        function Dashboard({ signals, alphaEngine, minScore, setMinScore, dismissSignal, copySignalDetails, riskAmount, setRiskAmount, maxPositions, setMaxPositions, formatBRL, orderExecutor, mode, updateTrigger,assetType,setAssetType,symbol,setSymbol }) {
             const [metrics, setMetrics] = useState({ winRate: 0, totalPnL: 0, totalSignals: 0 });,
-            const [assetType, setAssetType] = useState('crypto');
-            const [symbol, setSymbol] = useState('BTCUSDT');
-
+           
             
 
             // NOVO: Atualizar métricas quando alphaEngine ou updateTrigger mudar
@@ -6719,6 +6721,7 @@ function BacktestView({ alphaEngine, memoryDB, formatBRL }) {
     </script>
 </body>
 </html>
+
 
 
 
