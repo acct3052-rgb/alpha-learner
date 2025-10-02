@@ -1455,10 +1455,10 @@
             statsToSave.push({
                 stat_type: 'by_hour',
                 stat_key: hour,
-                total: stats.total,
-                wins: stats.wins,
-                losses: stats.losses,
-                expired: stats.expired || 0,
+                total: Math.floor(stats.total || 0),
+                wins: Math.floor(stats.wins || 0),
+                losses: Math.floor(stats.losses || 0),
+                expired: Math.floor(stats.expired || 0),
                 total_pnl: stats.totalPnL
             });
         });
@@ -1468,10 +1468,10 @@
             statsToSave.push({
                 stat_type: 'by_score',
                 stat_key: range,
-                total: stats.total,
-                wins: stats.wins,
-                losses: stats.losses,
-                expired: stats.expired || 0,
+                total: Math.floor(stats.total || 0),
+                wins: Math.floor(stats.wins || 0),
+                losses: Math.floor(stats.losses || 0),
+                expired: Math.floor(stats.expired || 0),
                 total_pnl: 0
             });
         });
@@ -1481,9 +1481,9 @@
             statsToSave.push({
                 stat_type: 'by_indicator',
                 stat_key: indicator,
-                total: stats.total,
-                wins: stats.wins,
-                losses: stats.losses,
+                total: Math.floor(stats.total || 0),
+                wins: Math.floor(stats.wins || 0),
+                losses: Math.floor(stats.losses || 0),
                 expired: 0,
                 total_pnl: 0
             });

@@ -79,8 +79,8 @@ CREATE TABLE IF NOT EXISTS public.ml_weights_evolution (
 -- Detailed audit trail for signal generation
 -- ========================================
 CREATE TABLE IF NOT EXISTS public.audit_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    signal_id TEXT,
+    id UUID DEFAULT uuid_generate_v4(),
+    signal_id TEXT PRIMARY KEY,
     generated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     candle_close_time TIMESTAMP WITH TIME ZONE,
     time_difference INTEGER,
