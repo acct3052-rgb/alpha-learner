@@ -145,14 +145,45 @@ let SUPABASE_KEY = 'your-anon-key-here';
 
 ### Important Schema Notes
 
-**signals table** includes:
-- `entry_time`: Timestamp when the signal was executed/entered
-- `executed`: Boolean flag indicating if the signal has been executed
-- All fields match the JavaScript code that saves signals (line 1915-1936 in index.html)
+**signals table** - Complete column list matching JavaScript code (line 1916-1938):
+- `id` (TEXT): Unique signal identifier
+- `timestamp` (TIMESTAMPTZ): Signal generation time
+- `symbol` (TEXT): Trading pair (e.g., BTCUSDT)
+- `direction` (TEXT): LONG or SHORT
+- `timeframe` (TEXT): Candle timeframe
+- `score` (INTEGER): Signal confidence score
+- `price` (DECIMAL): Entry price
+- `stop_loss` (DECIMAL): Stop loss price
+- `take_profit` (DECIMAL): Take profit price
+- `risk_reward` (DECIMAL): Risk/reward ratio
+- `status` (TEXT): PENDENTE, ACERTO, ERRO, EXPIRADO
+- `pnl` (DECIMAL): Profit and loss
+- `final_price` (DECIMAL): Exit price
+- `entry_time` (TIMESTAMPTZ): When signal was executed
+- `closed_at` (TIMESTAMPTZ): When position was closed
+- `data_source` (TEXT): Real or simulated data source
+- `divergence` (JSONB): Divergence data
+- `contributors` (JSONB): Indicator contributions
+- `features` (JSONB): ML features
+- `executed` (BOOLEAN): Execution status flag
+- `execution_details` (JSONB): Order execution details
+- `tpsl_details` (JSONB): TP/SL optimization details
+- `saved_at` (TIMESTAMPTZ): Database save timestamp
 
-**audit_logs table** includes:
-- `reason`: Text field for storing the reason for signal outcome
-- All fields match the JavaScript code that saves audit logs (line 1427-1439 in index.html)
+**audit_logs table** - Complete column list matching JavaScript code (line 1427-1439):
+- `id` (UUID): Unique audit log identifier
+- `signal_id` (TEXT): Reference to signals table
+- `generated_at` (TIMESTAMPTZ): Audit log creation time
+- `candle_close_time` (TIMESTAMPTZ): Related candle close time
+- `time_difference` (INTEGER): Time delta in seconds
+- `prices` (JSONB): Price data at signal generation
+- `indicators` (JSONB): Technical indicator values
+- `score_range` (TEXT): Score range category
+- `hour_of_day` (INTEGER): Hour when signal generated
+- `outcome` (TEXT): Final signal result
+- `outcome_time` (TIMESTAMPTZ): When outcome was determined
+- `reason` (TEXT): Detailed reason for outcome
+- `metadata` (JSONB): Additional metadata
 
 ---
 

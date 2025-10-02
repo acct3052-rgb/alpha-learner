@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS public.signals (
     contributors JSONB,
     features JSONB,
     executed BOOLEAN DEFAULT false,
+    execution_details JSONB,
+    tpsl_details JSONB,
+    saved_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
