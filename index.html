@@ -2683,7 +2683,7 @@ class TPSLOptimizer {
                 }
             }
 
-          analyzeMarket(marketData, dataSource) {
+          analyzeMarket(marketData, dataSource, symbol = 'BTCUSDT') {
     const prices = marketData.prices;
     const currentPrice = marketData.getLatestPrice();
 
@@ -2709,7 +2709,7 @@ class TPSLOptimizer {
     const features = this.extractFeatures(currentPrice, rsi, macd, bollinger, stochastic, volume, obv, ichimoku, vwap, prices, rsiValues);
 
     // ✅ CORRIGIDO: Agora gera e retorna o sinal
-    const signal = this.generateSignal(features, currentPrice, dataSource);
+    const signal = this.generateSignal(features, currentPrice, dataSource, symbol);
 
     return signal;
 }
@@ -2897,7 +2897,7 @@ calculateVolumeScore(volume) {
                 return Math.max(-1, Math.min(1, score));
             }
            
-            generateSignal(features, currentPrice, dataSource) {
+            generateSignal(features, currentPrice, dataSource, symbol = 'BTCUSDT') {
     let score = 0;
     const contributors = [];
 
@@ -2968,7 +2968,7 @@ calculateVolumeScore(volume) {
     const signal = {
         id: Date.now() + Math.random(),
         timestamp: new Date(),
-        symbol: 'BTCUSDT',
+        symbol: symbol,
         direction,
         timeframe: 'M5',
         score: Math.round(normalizedScore),
@@ -3602,6 +3602,8 @@ calculateVolumeScore(volume) {
             const [auditSystem, setAuditSystem] = useState(null);
             const [maxPositions, setMaxPositions] = useState(3);
             const [updateTrigger, setUpdateTrigger] = useState(0); // NOVO: Para forçar re-renders
+            const [assetType, setAssetType] = useState('crypto'); // 'crypto', 'forex', 'stock'
+            const [symbol, setSymbol] = useState('BTCUSDT');
 
             const marketDataRef = useRef(null);
             const alphaEngineRef = useRef(null);
@@ -3790,12 +3792,8 @@ useEffect(() => {
                         
                         if (activeConn && activeConn.status === 'connected') {
                             try {
-                                let symbolToFetch = 'BTCUSDT';
-                                if (activeConn.provider === 'ALPHA_VANTAGE') {
-                                    symbolToFetch = 'IBM';
-                                } else if (activeConn.provider === 'COINGECKO') {
-                                    symbolToFetch = 'BTC';
-                                }
+                                // Usar o símbolo escolhido pelo usuário
+                                let symbolToFetch = symbol || 'BTCUSDT';
                                 
                                 const realData = await fetchRealMarketData(
                                     activeConn.provider,
@@ -3827,8 +3825,8 @@ useEffect(() => {
                             currentDataSource = 'SIMULADO';
                             setDataSource('SIMULADO');
                         }
-                        
-                        const signal = alphaEngine.analyzeMarket(marketData, currentDataSource);
+
+                        const signal = alphaEngine.analyzeMarket(marketData, currentDataSource, symbol);
 
                         // ADICIONE ESTE LOG PARA DEPURAÇÃO
     if (signal) {
@@ -4507,6 +4505,67 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                                     </div>
                                     <div className="metric-label">P&L Acumulado</div>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h3>🎯 Configuração do Ativo</h3>
+
+                        <div className="form-group">
+                            <label className="form-label">Tipo de Ativo</label>
+                            <select
+                                className="form-select"
+                                value={assetType}
+                                onChange={(e) => {
+                                    setAssetType(e.target.value);
+                                    // Auto-ajustar símbolo padrão
+                                    if (e.target.value === 'crypto') setSymbol('BTCUSDT');
+                                    else if (e.target.value === 'forex') setSymbol('EURUSD');
+                                    else if (e.target.value === 'stock') setSymbol('AAPL');
+                                }}
+                            >
+                                <option value="crypto">🟡 Criptomoeda</option>
+                                <option value="forex">💱 Forex (Moedas)</option>
+                                <option value="stock">📈 Ações</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Símbolo do Ativo</label>
+                            <input
+                                type="text"
+                                className="form-input"
+                                placeholder={
+                                    assetType === 'crypto' ? 'Ex: BTCUSDT, ETHUSDT' :
+                                    assetType === 'forex' ? 'Ex: EURUSD, GBPUSD' :
+                                    'Ex: AAPL, GOOGL, TSLA'
+                                }
+                                value={symbol}
+                                onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+                            />
+                            <div style={{ fontSize: '12px', color: '#888', marginTop: '8px' }}>
+                                {assetType === 'crypto' && '💡 Use símbolos da Binance (ex: BTCUSDT)'}
+                                {assetType === 'forex' && '💡 Use pares de moedas (ex: EURUSD)'}
+                                {assetType === 'stock' && '💡 Use tickers de ações (ex: AAPL, GOOGL)'}
+                            </div>
+                        </div>
+
+                        <div style={{
+                            padding: '12px',
+                            backgroundColor: 'rgba(0, 255, 136, 0.1)',
+                            borderRadius: '8px',
+                            marginTop: '16px',
+                            fontSize: '13px',
+                            border: '1px solid rgba(0, 255, 136, 0.3)'
+                        }}>
+                            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#00ff88' }}>
+                                📡 APIs Compatíveis
+                            </div>
+                            <div style={{ color: '#c0c0c0' }}>
+                                {assetType === 'crypto' && '• Binance, CoinGecko'}
+                                {assetType === 'forex' && '• Alpha Vantage, Polygon'}
+                                {assetType === 'stock' && '• Alpha Vantage, Polygon'}
                             </div>
                         </div>
                     </div>
