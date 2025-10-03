@@ -4336,10 +4336,26 @@ useEffect(() => {
                             console.log(`   ❌ Nenhum sinal encontrado`);
                         }
 
-                        // ⚠️ VALIDAÇÃO: Filtrar sinais duplicados no mesmo candle
-                        if (signal && lastSignalCandleTime === candleInfo.candleId) {
-                            console.warn(`   🚫 [FILTRADO] Sinal duplicado no mesmo candle. Ignorando.`);
-                            return;
+                        // ⚠️ VALIDAÇÃO: Filtrar sinais duplicados no mesmo candle E mesmo entryTime
+                        if (signal) {
+                            const signalEntryTime = signal.entryTime.getTime();
+
+                            // Verificar se já existe um sinal com EXATAMENTE o mesmo entryTime
+                            const hasDuplicateEntryTime = signals.some(s => {
+                                if (!s.entryTime) return false;
+                                return new Date(s.entryTime).getTime() === signalEntryTime;
+                            });
+
+                            if (hasDuplicateEntryTime) {
+                                console.warn(`   🚫 [FILTRADO] Sinal com entryTime duplicado (${signal.entryTime.toLocaleTimeString('pt-BR')}). Ignorando.`);
+                                return;
+                            }
+
+                            // Também filtrar pelo candleId
+                            if (lastSignalCandleTime === candleInfo.candleId) {
+                                console.warn(`   🚫 [FILTRADO] Sinal duplicado no mesmo candle. Ignorando.`);
+                                return;
+                            }
                         }
 
                         if (signal && signal.score >= minScoreRef.current) {
