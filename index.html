@@ -881,11 +881,12 @@
                     case 'AWESOMEAPI':
                         // AwesomeAPI - API brasileira gratuita para cotações
                         // Suporta: USD-BRL, EUR-BRL, BTC-BRL, etc.
-                        url = `https://economia.awesomeapi.com.br/json/last/${symbol}`;
+                        // Usando endpoint sequencial para obter histórico (limite 100 pontos)
+                        url = `https://economia.awesomeapi.com.br/json/${symbol}/100`;
                         response = await fetch(url);
                         data = await response.json();
 
-                        if (data.status === 'error') {
+                        if (data.status === 'error' || !Array.isArray(data)) {
                             throw new Error(data.message || 'Erro na API AwesomeAPI');
                         }
                         return parseAwesomeAPIData(data, symbol);
@@ -961,33 +962,29 @@
         }
 
         function parseAwesomeAPIData(data, symbol) {
-            // AwesomeAPI retorna objeto com chave no formato: USDBRL, EURBRL, etc.
-            const key = symbol.replace('-', '');
-            const quoteData = data[key];
-
-            if (!quoteData) {
+            // AwesomeAPI retorna array de cotações históricas
+            if (!Array.isArray(data) || data.length === 0) {
                 throw new Error('Dados da cotação não encontrados');
             }
 
-            // AwesomeAPI retorna um único ponto de dados, então criamos um candle atual
-            const timestamp = parseInt(quoteData.timestamp) * 1000; // Converter para ms
-            const currentPrice = parseFloat(quoteData.bid);
-            const high = parseFloat(quoteData.high);
-            const low = parseFloat(quoteData.low);
+            // Converter dados da AwesomeAPI para formato de candles
+            return data.map(quote => {
+                const timestamp = parseInt(quote.timestamp) * 1000; // Converter para ms
+                const bid = parseFloat(quote.bid);
+                const ask = parseFloat(quote.ask);
+                const high = parseFloat(quote.high);
+                const low = parseFloat(quote.low);
 
-            // Simular dados históricos com base nos valores disponíveis
-            return [{
-                timestamp: timestamp,
-                open: currentPrice,
-                high: high,
-                low: low,
-                close: currentPrice,
-                volume: 0, // AwesomeAPI não fornece volume
-                name: quoteData.name,
-                create_date: quoteData.create_date,
-                pctChange: parseFloat(quoteData.pctChange),
-                varBid: parseFloat(quoteData.varBid)
-            }];
+                // Criar candle a partir dos dados disponíveis
+                return {
+                    timestamp: timestamp,
+                    open: bid, // Usar bid como preço de abertura
+                    high: high,
+                    low: low,
+                    close: bid, // Usar bid como preço de fechamento
+                    volume: 0 // AwesomeAPI não fornece volume
+                };
+            }).reverse(); // Reverter para ordem cronológica (mais antigo -> mais recente)
         }
 
         function validateAPIKey(provider, apiKey, secretKey = null) {
