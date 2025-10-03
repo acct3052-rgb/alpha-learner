@@ -1963,6 +1963,21 @@
 
             async saveSignal(signal) {
                 try {
+                    // Validar campos obrigatórios antes de salvar
+                    if (!signal.id || !signal.timestamp || !signal.symbol || !signal.direction ||
+                        signal.score === null || signal.score === undefined || isNaN(signal.score) ||
+                        !signal.price || isNaN(signal.price)) {
+                        console.error('❌ Sinal inválido, não será salvo:', {
+                            id: signal.id,
+                            timestamp: signal.timestamp,
+                            symbol: signal.symbol,
+                            direction: signal.direction,
+                            score: signal.score,
+                            price: signal.price
+                        });
+                        return;
+                    }
+
                     // Salvar no Supabase
                     const { error } = await supabase
                         .from('signals')
@@ -1972,7 +1987,7 @@
                             symbol: signal.symbol,
                             direction: signal.direction,
                             timeframe: signal.timeframe,
-                            score: signal.score,
+                            score: Number(signal.score),
                             price: signal.price,
                             stop_loss: signal.stopLoss,
                             take_profit: signal.takeProfit,
@@ -2925,50 +2940,70 @@ calculateVolumeScore(volume) {
             }
            
             generateSignal(features, currentPrice, dataSource, symbol = 'BTCUSDT') {
+    // Validar entrada
+    if (!currentPrice || !currentPrice.close || isNaN(currentPrice.close)) {
+        console.error('❌ currentPrice inválido:', currentPrice);
+        return null;
+    }
+
+    if (!features) {
+        console.error('❌ features inválidas');
+        return null;
+    }
+
     let score = 0;
     const contributors = [];
 
     Object.keys(this.weights).forEach(indicator => {
         let indicatorScore = 0;
-        
+
         switch(indicator) {
             case 'rsi':
-                indicatorScore = features.rsi.score;
+                indicatorScore = features.rsi?.score || 0;
                 break;
             case 'macd':
-                indicatorScore = features.macd.score;
+                indicatorScore = features.macd?.score || 0;
                 break;
             case 'bollinger':
-                indicatorScore = features.bollinger.score;
+                indicatorScore = features.bollinger?.score || 0;
                 break;
             case 'stochastic_events':
-                indicatorScore = features.stochastic.score;
+                indicatorScore = features.stochastic?.score || 0;
                 break;
             case 'stochastic_divergence':
-                if (features.stochastic.divergence.present) {
+                if (features.stochastic?.divergence?.present) {
                     indicatorScore = features.stochastic.divergence.type === 'bullish' ? 0.8 : -0.8;
-                    indicatorScore *= features.stochastic.divergence.strength;
+                    indicatorScore *= features.stochastic.divergence.strength || 1;
                 }
                 break;
             case 'volume':
-                indicatorScore = features.volume.score;
+                indicatorScore = features.volume?.score || 0;
                 break;
             case 'obv':
-                indicatorScore = features.obv.score;
+                indicatorScore = features.obv?.score || 0;
                 break;
             case 'ichimoku':
-                indicatorScore = features.ichimoku.score;
+                indicatorScore = features.ichimoku?.score || 0;
                 break;
             case 'vwap':
-                indicatorScore = features.vwap.score;
+                indicatorScore = features.vwap?.score || 0;
                 break;
         }
-        
-        score += indicatorScore * this.weights[indicator];
-        if (Math.abs(indicatorScore) > 0.1) {
-            contributors.push(indicator);
+
+        // Validar que indicatorScore não é NaN
+        if (!isNaN(indicatorScore)) {
+            score += indicatorScore * this.weights[indicator];
+            if (Math.abs(indicatorScore) > 0.1) {
+                contributors.push(indicator);
+            }
         }
     });
+
+    // Validar score antes de normalizar
+    if (isNaN(score)) {
+        console.error('❌ Score calculado é NaN');
+        return null;
+    }
 
     const normalizedScore = Math.max(0, Math.min(100, (score + 1) * 50));
 
