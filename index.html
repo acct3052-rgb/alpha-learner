@@ -4182,7 +4182,8 @@ useEffect(() => {
                     };
                 };
 
-                const interval = setInterval(async () => {
+                // 🚀 FUNÇÃO PRINCIPAL DE ANÁLISE
+                const runAnalysis = async () => {
                     try {
                         analysisCount++;
                         const candleInfo = getCandleInfo();
@@ -4319,7 +4320,14 @@ useEffect(() => {
                         showNotification(`⚠️ Erro no loop principal: ${error.message}`);
                         setDataSource('ERROR');
                     }
-                }, 300000); // 5 minutos = 300.000ms
+                };
+
+                // ⚡ EXECUTAR IMEDIATAMENTE ao ativar
+                console.log('🚀 Alpha Engine ativado! Executando primeira análise...');
+                runAnalysis();
+
+                // 🔄 Depois continuar com intervalo de 5 minutos
+                const interval = setInterval(runAnalysis, 300000); // 5 minutos
 
                 console.log('🔄 Sistema de análise iniciado');
                 console.log('   ⏱️ Intervalo: 5 minutos (300s)');
