@@ -703,9 +703,13 @@
     }
 
     addConnection(provider, apiKey, secretKey = null) {
+        // APIs que não precisam de chave (como AwesomeAPI)
+        const providerConfig = API_PROVIDERS[provider];
+        const needsKey = providerConfig && (providerConfig.requiresSecret || provider !== 'AWESOMEAPI');
+
         this.connections.set(provider, {
             provider,
-            apiKey,
+            apiKey: needsKey ? apiKey : 'PUBLIC_API',
             secretKey,
             status: 'disconnected',
             addedAt: new Date().toISOString()
@@ -6073,36 +6077,66 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                             </select>
                         </div>
 
-                        <div className="form-group">
-                            <label className="form-label">API Key</label>
-                            <input 
-                                type="password"
-                                className="form-input"
-                                value={apiKey}
-                                onChange={(e) => setApiKey(e.target.value)}
-                            />
-                        </div>
+                        {/* AwesomeAPI não precisa de chave */}
+                        {selectedProvider !== 'AWESOMEAPI' && (
+                            <>
+                                <div className="form-group">
+                                    <label className="form-label">API Key</label>
+                                    <input
+                                        type="password"
+                                        className="form-input"
+                                        value={apiKey}
+                                        onChange={(e) => setApiKey(e.target.value)}
+                                    />
+                                </div>
 
-                        {API_PROVIDERS[selectedProvider].requiresSecret && (
-                            <div className="form-group">
-                                <label className="form-label">Secret Key</label>
-                                <input 
-                                    type="password"
-                                    className="form-input"
-                                    value={secretKey}
-                                    onChange={(e) => setSecretKey(e.target.value)}
-                                />
+                                {API_PROVIDERS[selectedProvider].requiresSecret && (
+                                    <div className="form-group">
+                                        <label className="form-label">Secret Key</label>
+                                        <input
+                                            type="password"
+                                            className="form-input"
+                                            value={secretKey}
+                                            onChange={(e) => setSecretKey(e.target.value)}
+                                        />
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        {/* Aviso para AwesomeAPI */}
+                        {selectedProvider === 'AWESOMEAPI' && (
+                            <div className="success-box">
+                                ✅ Esta API é pública e gratuita. Não requer chaves de acesso.<br/>
+                                <strong>Símbolos disponíveis:</strong> USD-BRL, EUR-BRL, BTC-BRL, ETH-BRL, etc.
                             </div>
                         )}
 
-                        <button 
-                            className="btn btn-primary" 
-                            onClick={handleTest}
-                            disabled={testing}
-                            style={{ width: '100%' }}
-                        >
-                            {testing ? '🔄 Testando...' : '🔗 Salvar e Testar'}
-                        </button>
+                        {/* AwesomeAPI não precisa de API Key - botão direto */}
+                        {selectedProvider === 'AWESOMEAPI' ? (
+                            <button
+                                className="btn btn-primary"
+                                onClick={() => {
+                                    apiManager.addConnection('AWESOMEAPI', 'PUBLIC_API', null);
+                                    apiManager.updateStatus('AWESOMEAPI', 'connected');
+                                    apiManager.setActive('AWESOMEAPI');
+                                    showNotification('✅ AwesomeAPI ativada! (API pública brasileira)');
+                                    setUpdateTrigger(prev => prev + 1);
+                                }}
+                                style={{ width: '100%' }}
+                            >
+                                ⚡ Ativar AwesomeAPI (Sem chave necessária)
+                            </button>
+                        ) : (
+                            <button
+                                className="btn btn-primary"
+                                onClick={handleTest}
+                                disabled={testing}
+                                style={{ width: '100%' }}
+                            >
+                                {testing ? '🔄 Testando...' : '🔗 Salvar e Testar'}
+                            </button>
+                        )}
 
                         {testResult && (
                             <div className={testResult.success ? 'success-box' : 'error-box'} style={{ marginTop: '15px' }}>
