@@ -2154,7 +2154,102 @@
                 this.timeframe = 'M5';
                 this.lastPriceCheck = null;
                 this.stuckPriceCount = 0;
+                this.binanceWs = null;
+                this.wsReconnectAttempts = 0;
+                this.maxReconnectAttempts = 5;
                 console.log('📊 MarketData inicializado - aguardando dados de API');
+            }
+
+            connectBinanceWebSocket(symbol, interval = '5m', onUpdate) {
+                if (this.binanceWs) {
+                    console.log('🔌 Fechando conexão WebSocket anterior...');
+                    this.binanceWs.close();
+                }
+
+                const wsUrl = `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`;
+                console.log('🔌 Conectando ao WebSocket Binance:', wsUrl);
+
+                this.binanceWs = new WebSocket(wsUrl);
+
+                this.binanceWs.onopen = () => {
+                    console.log('✅ WebSocket Binance conectado!');
+                    this.wsReconnectAttempts = 0;
+                };
+
+                this.binanceWs.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        const kline = data.k;
+
+                        if (kline) {
+                            const candle = {
+                                timestamp: kline.t,
+                                open: parseFloat(kline.o),
+                                high: parseFloat(kline.h),
+                                low: parseFloat(kline.l),
+                                close: parseFloat(kline.c),
+                                volume: parseFloat(kline.v),
+                                isClosed: kline.x
+                            };
+
+                            // Atualizar apenas candles fechados
+                            if (candle.isClosed) {
+                                console.log('📊 Novo candle recebido:', candle.close);
+
+                                // Adicionar novo candle aos preços
+                                const existingIndex = this.prices.findIndex(p => p.timestamp === candle.timestamp);
+                                if (existingIndex >= 0) {
+                                    this.prices[existingIndex] = candle;
+                                } else {
+                                    this.prices.push(candle);
+                                    // Manter apenas os últimos 200 candles
+                                    if (this.prices.length > 200) {
+                                        this.prices.shift();
+                                    }
+                                }
+
+                                // Callback para notificar atualização
+                                if (onUpdate) {
+                                    onUpdate(candle);
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error('❌ Erro ao processar mensagem WebSocket:', error);
+                    }
+                };
+
+                this.binanceWs.onerror = (error) => {
+                    console.error('❌ Erro no WebSocket:', error);
+                };
+
+                this.binanceWs.onclose = () => {
+                    console.log('🔌 WebSocket Binance desconectado');
+
+                    // Tentar reconectar
+                    if (this.wsReconnectAttempts < this.maxReconnectAttempts) {
+                        this.wsReconnectAttempts++;
+                        const delay = Math.min(1000 * Math.pow(2, this.wsReconnectAttempts), 30000);
+                        console.log(`🔄 Tentando reconectar em ${delay/1000}s (tentativa ${this.wsReconnectAttempts}/${this.maxReconnectAttempts})...`);
+
+                        setTimeout(() => {
+                            this.connectBinanceWebSocket(symbol, interval, onUpdate);
+                        }, delay);
+                    } else {
+                        console.error('❌ Máximo de tentativas de reconexão atingido');
+                    }
+                };
+
+                return this.binanceWs;
+            }
+
+            disconnectBinanceWebSocket() {
+                if (this.binanceWs) {
+                    console.log('🔌 Fechando conexão WebSocket...');
+                    this.wsReconnectAttempts = this.maxReconnectAttempts; // Prevenir reconexão automática
+                    this.binanceWs.close();
+                    this.binanceWs = null;
+                }
             }
 
             getLatestPrice() {
