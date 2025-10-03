@@ -864,11 +864,23 @@
                         url = `${API_PROVIDERS.POLYGON.baseUrl}/aggs/ticker/${symbol}/range/${multiplier}/minute/${from}/${to}?apiKey=${apiKey}`;
                         response = await fetch(url);
                         data = await response.json();
-                        
+
                         if (data.status === 'ERROR') {
                             throw new Error(data.error || 'Erro na API Polygon');
                         }
                         return parsePolygonData(data);
+
+                    case 'AWESOMEAPI':
+                        // AwesomeAPI - API brasileira gratuita para cotações
+                        // Suporta: USD-BRL, EUR-BRL, BTC-BRL, etc.
+                        url = `https://economia.awesomeapi.com.br/json/last/${symbol}`;
+                        response = await fetch(url);
+                        data = await response.json();
+
+                        if (data.status === 'error') {
+                            throw new Error(data.message || 'Erro na API AwesomeAPI');
+                        }
+                        return parseAwesomeAPIData(data, symbol);
 
                     default:
                         throw new Error('Provider não suportado');
@@ -940,6 +952,36 @@
             }));
         }
 
+        function parseAwesomeAPIData(data, symbol) {
+            // AwesomeAPI retorna objeto com chave no formato: USDBRL, EURBRL, etc.
+            const key = symbol.replace('-', '');
+            const quoteData = data[key];
+
+            if (!quoteData) {
+                throw new Error('Dados da cotação não encontrados');
+            }
+
+            // AwesomeAPI retorna um único ponto de dados, então criamos um candle atual
+            const timestamp = parseInt(quoteData.timestamp) * 1000; // Converter para ms
+            const currentPrice = parseFloat(quoteData.bid);
+            const high = parseFloat(quoteData.high);
+            const low = parseFloat(quoteData.low);
+
+            // Simular dados históricos com base nos valores disponíveis
+            return [{
+                timestamp: timestamp,
+                open: currentPrice,
+                high: high,
+                low: low,
+                close: currentPrice,
+                volume: 0, // AwesomeAPI não fornece volume
+                name: quoteData.name,
+                create_date: quoteData.create_date,
+                pctChange: parseFloat(quoteData.pctChange),
+                varBid: parseFloat(quoteData.varBid)
+            }];
+        }
+
         function validateAPIKey(provider, apiKey, secretKey = null) {
             const errors = [];
 
@@ -974,6 +1016,11 @@
                         errors.push('CoinGecko Pro API key should start with "CG-"');
                     }
                     break;
+
+                case 'AWESOMEAPI':
+                    // AwesomeAPI é gratuita e não requer chave de API
+                    // Nenhuma validação necessária
+                    break;
             }
 
             return errors;
@@ -985,7 +1032,8 @@
                 if (provider === 'ALPHA_VANTAGE') testSymbol = 'IBM';
                 else if (provider === 'COINGECKO') testSymbol = 'BTC';
                 else if (provider === 'POLYGON') testSymbol = 'AAPL';
-                
+                else if (provider === 'AWESOMEAPI') testSymbol = 'USD-BRL';
+
                 await fetchRealMarketData(provider, apiKey, testSymbol, 'M5', secretKey);
                 return { success: true, message: 'Conexão bem-sucedida!' };
             } catch (error) {
