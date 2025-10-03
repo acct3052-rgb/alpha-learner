@@ -4456,11 +4456,17 @@ useEffect(() => {
                 try {
                     if (!marketData) return;
 
-                    let result = forcedResult || 'EXPIRADO';
-                    let pnl = forcedPnl || 0;
+                    let result = 'EXPIRADO';
+                    let pnl = 0;
                     let currentPrice = forcedPrice || marketData.getLatestPrice().close;
-                    
-                    if (!forcedResult) {
+
+                    // ✅ Se resultado já foi calculado (opções binárias), USAR ele!
+                    if (forcedResult !== null) {
+                        result = forcedResult;
+                        pnl = forcedPnl !== null ? forcedPnl : 0;
+                        console.log(`✅ [VERIFY] Usando resultado calculado: ${result} | P&L: ${pnl}`);
+                    } else {
+                        // 📊 Cálculo tradicional com TP/SL (apenas se não foi passado resultado)
                         if (signal.direction === 'BUY') {
                             if (currentPrice >= signal.takeProfit) {
                                 result = 'ACERTO';
@@ -4478,6 +4484,7 @@ useEffect(() => {
                                 pnl = -riskAmount;
                             }
                         }
+                        console.log(`📊 [VERIFY] Resultado calculado com TP/SL: ${result} | P&L: ${pnl}`);
                     }
 
                     signal.status = result;
