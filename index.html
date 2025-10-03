@@ -1144,6 +1144,122 @@
                 }
             }
 
+            /* ========================================
+               SINCRONIZAÇÃO COM SUPABASE
+               ======================================== */
+            async saveExecutionToSupabase(execution) {
+                try {
+                    const { data, error } = await supabase
+                        .from('futures_executions')
+                        .insert([{
+                            signal_id: execution.signalId,
+                            timestamp: execution.timestamp,
+                            symbol: execution.symbol,
+                            direction: execution.direction,
+                            entry_price: execution.orderResult.executedPrice,
+                            stop_loss: execution.signal.stopLoss,
+                            take_profit: execution.signal.takeProfit,
+                            order_id: execution.orderResult.orderId,
+                            stop_loss_order_id: execution.orderResult.stopLossOrderId,
+                            take_profit_order_id: execution.orderResult.takeProfitOrderId,
+                            result: 'PENDING',
+                            risk_amount: execution.riskAmount,
+                            quantity: execution.orderResult.executedQty,
+                            leverage: execution.orderResult.leverage || this.config.leverage,
+                            margin_mode: execution.orderResult.marginMode || this.config.marginMode,
+                            commission: execution.orderResult.commission,
+                            confidence_score: execution.signal.score,
+                            simulated: execution.orderResult.simulated || false,
+                            metadata: {
+                                indicators: execution.signal.indicators || {},
+                                execution_mode: this.config.modoAutomatico ? 'auto' : 'manual'
+                            }
+                        }])
+                        .select();
+
+                    if (error) throw error;
+
+                    // Retornar ID do registro criado
+                    return data[0]?.id;
+
+                } catch (error) {
+                    console.error('❌ Erro ao salvar execução no Supabase:', error);
+                    this.log(`Erro ao salvar no Supabase: ${error.message}`, 'warning');
+                    return null;
+                }
+            }
+
+            async updateExecutionInSupabase(signalId, result, pnl, exitPrice = null) {
+                try {
+                    const { data, error } = await supabase
+                        .from('futures_executions')
+                        .update({
+                            result: result,
+                            pnl: pnl,
+                            exit_price: exitPrice,
+                            closed_at: new Date().toISOString()
+                        })
+                        .eq('signal_id', signalId)
+                        .select();
+
+                    if (error) throw error;
+
+                    this.log(`✅ Execução atualizada no Supabase: ${result}`, 'info');
+                    return data;
+
+                } catch (error) {
+                    console.error('❌ Erro ao atualizar execução no Supabase:', error);
+                    this.log(`Erro ao atualizar Supabase: ${error.message}`, 'warning');
+                    return null;
+                }
+            }
+
+            async loadExecutionsFromSupabase() {
+                try {
+                    const { data, error } = await supabase
+                        .from('futures_executions')
+                        .select('*')
+                        .order('created_at', { ascending: false })
+                        .limit(100);
+
+                    if (error) throw error;
+
+                    if (data && data.length > 0) {
+                        console.log(`✅ ${data.length} execuções carregadas do Supabase`);
+                        return data;
+                    }
+
+                    return [];
+
+                } catch (error) {
+                    console.error('❌ Erro ao carregar execuções do Supabase:', error);
+                    return [];
+                }
+            }
+
+            async getExecutionStats() {
+                try {
+                    const { data, error } = await supabase
+                        .from('futures_execution_stats')
+                        .select('*')
+                        .single();
+
+                    if (error && error.code !== 'PGRST116') throw error;
+
+                    return data || {
+                        total_executions: 0,
+                        wins: 0,
+                        losses: 0,
+                        win_rate: 0,
+                        total_pnl: 0
+                    };
+
+                } catch (error) {
+                    console.error('❌ Erro ao buscar estatísticas:', error);
+                    return null;
+                }
+            }
+
             log(message, type = 'info') {
                 const logEntry = {
                     timestamp: new Date().toISOString(),
@@ -1233,6 +1349,9 @@
                     }
 
                     if (orderResult.success) {
+                        // Adicionar riskAmount ao orderResult
+                        orderResult.riskAmount = riskAmount;
+
                         // Registrar posição ativa
                         this.activePositions.set(signal.id, {
                             signal,
@@ -1772,6 +1891,9 @@ Duração: ${data.duration}
                     // Atualizar saldo
                     this.virtualBalance += position.riskAmount + pnl;
 
+                    // Calcular preço de saída (estimado)
+                    const exitPrice = this.calculateExitPrice(position, result, pnl);
+
                     // Remover posição
                     this.activePositions.delete(signalId);
 
@@ -1779,7 +1901,29 @@ Duração: ${data.duration}
                     this.log(`📊 Posição fechada: ${result} | P&L: R$${pnl.toFixed(2)}`,
                         pnl >= 0 ? 'success' : 'warning');
 
+                    // Salvar localStorage
                     this.saveToStorage();
+
+                    // Atualizar no Supabase (assíncrono)
+                    this.updateExecutionInSupabase(signalId, result, pnl, exitPrice).catch(err => {
+                        console.error('Erro ao atualizar execução no Supabase:', err);
+                    });
+                }
+            }
+
+            calculateExitPrice(position, result, pnl) {
+                if (result === 'TAKE_PROFIT') {
+                    return position.signal.takeProfit;
+                } else if (result === 'STOP_LOSS') {
+                    return position.signal.stopLoss;
+                } else {
+                    // EXPIRED ou MANUAL: estimar baseado no P&L
+                    const entryPrice = position.orderResult.executedPrice;
+                    const quantity = position.orderResult.executedQty;
+                    if (quantity === 0) return entryPrice;
+
+                    const priceChange = pnl / quantity;
+                    return entryPrice + priceChange;
                 }
             }
 
@@ -1806,21 +1950,29 @@ Duração: ${data.duration}
                     symbol: signal.symbol,
                     direction: signal.direction,
                     orderResult: orderResult,
+                    riskAmount: orderResult.riskAmount || 0,
                     signal: {
                         score: signal.score,
                         price: signal.price,
                         stopLoss: signal.stopLoss,
-                        takeProfit: signal.takeProfit
+                        takeProfit: signal.takeProfit,
+                        indicators: signal.indicators
                     }
                 };
 
                 this.executionHistory.push(execution);
-                
+
                 if (this.executionHistory.length > 100) {
                     this.executionHistory = this.executionHistory.slice(-100);
                 }
-                
+
+                // Salvar em localStorage
                 this.saveToStorage();
+
+                // Salvar no Supabase (assíncrono, não bloqueia)
+                this.saveExecutionToSupabase(execution).catch(err => {
+                    console.error('Erro ao salvar execução no Supabase:', err);
+                });
             }
 
             getExecutionHistory() {

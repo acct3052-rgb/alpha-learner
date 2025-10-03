@@ -9,7 +9,8 @@
 6. [Fluxo de Operação](#fluxo-de-operação)
 7. [Gestão de Risco](#gestão-de-risco)
 8. [Exportar Logs](#exportar-logs)
-9. [Solução de Problemas](#solução-de-problemas)
+9. [Configuração do Banco de Dados Supabase](#configuração-do-banco-de-dados-supabase) ⭐ **NOVO**
+10. [Solução de Problemas](#solução-de-problemas)
 
 ---
 
@@ -26,6 +27,7 @@ O **Alpha-Learner** agora está 100% configurado para operar na **Binance Future
 ✅ **Modo Manual com popup de confirmação**
 ✅ **Exportação de logs em CSV**
 ✅ **Gestão de risco avançada**
+✅ **Persistência no Supabase** (nunca perde dados) ⭐ **NOVO**
 
 ---
 
@@ -424,6 +426,129 @@ Timestamp,Símbolo,Direção,Preço Entrada,Stop Loss,Take Profit,Resultado,P&L,
    - Maior sequência de perdas
    - Melhor par (símbolo)
    - Melhor horário
+
+---
+
+## 🗄️ CONFIGURAÇÃO DO BANCO DE DADOS SUPABASE
+
+### ⚠️ **IMPORTANTE: Execute o Script SQL Antes de Usar**
+
+O sistema agora salva o histórico de execuções no **Supabase** para que você nunca perca seus dados.
+
+### 📝 **Passo a Passo:**
+
+1. **Acesse o Supabase:**
+   - URL: https://supabase.com/dashboard/project/[seu-projeto]
+   - Vá em **SQL Editor** no menu lateral
+
+2. **Execute o Script:**
+   - Abra o arquivo: [`supabase-futures-executions.sql`](supabase-futures-executions.sql)
+   - **Copie TODO o conteúdo**
+   - **Cole no SQL Editor**
+   - Clique em **Run** (ou Ctrl+Enter)
+
+3. **Verifique o Sucesso:**
+   ```sql
+   -- Deve retornar a tabela criada
+   SELECT tablename FROM pg_tables WHERE tablename = 'futures_executions';
+   ```
+
+### 📊 **O que é criado:**
+
+| Item | Descrição |
+|------|-----------|
+| **Tabela** `futures_executions` | Histórico completo de todas as execuções |
+| **View** `futures_execution_stats` | Estatísticas gerais (win rate, P&L total, etc) |
+| **View** `futures_stats_by_symbol` | Performance por par (BTCUSDT, ETHUSDT, etc) |
+| **View** `futures_stats_by_day` | Lucro/perda diário |
+| **View** `futures_recent_executions` | Últimas 100 execuções |
+| **6 índices** | Otimização de performance das consultas |
+| **Trigger automático** | Calcula lucro líquido automaticamente |
+| **Políticas RLS** | Segurança de acesso aos dados |
+
+### 🔄 **Como funciona a sincronização:**
+
+```
+1. Ordem executada → Salva no Supabase + localStorage
+2. Posição fechada → Atualiza resultado no Supabase + localStorage
+3. Sistema sincroniza automaticamente (não precisa fazer nada!)
+```
+
+**Vantagens da sincronização:**
+- ✅ **Nunca perde dados** (mesmo limpando cache do navegador)
+- ✅ **Histórico ilimitado** (não tem limite de 5-10MB do localStorage)
+- ✅ **Acesso de qualquer dispositivo** (dados na nuvem)
+- ✅ **Estatísticas em tempo real** via views SQL
+- ✅ **Backup automático** sempre disponível
+- ✅ **Análises avançadas** com SQL queries
+
+### 📈 **Consultas Úteis:**
+
+```sql
+-- Ver estatísticas gerais
+SELECT * FROM futures_execution_stats;
+
+-- Ver performance por símbolo
+SELECT * FROM futures_stats_by_symbol;
+
+-- Ver lucro diário
+SELECT * FROM futures_stats_by_day;
+
+-- Ver últimas execuções
+SELECT * FROM futures_recent_executions;
+
+-- Posições ainda abertas
+SELECT * FROM futures_executions WHERE result = 'PENDING';
+
+-- Melhores trades (top 10)
+SELECT symbol, direction, net_profit, created_at
+FROM futures_executions
+WHERE result IN ('TAKE_PROFIT', 'STOP_LOSS')
+ORDER BY net_profit DESC
+LIMIT 10;
+```
+
+### 🔍 **Estrutura da Tabela:**
+
+```sql
+futures_executions {
+  id: UUID (gerado automaticamente)
+  signal_id: TEXT
+  timestamp: TIMESTAMPTZ
+  symbol: TEXT (ex: BTCUSDT)
+  direction: TEXT (LONG ou SHORT)
+
+  -- Preços
+  entry_price: NUMERIC
+  stop_loss: NUMERIC
+  take_profit: NUMERIC
+  exit_price: NUMERIC
+
+  -- IDs das ordens
+  order_id: TEXT
+  stop_loss_order_id: TEXT
+  take_profit_order_id: TEXT
+
+  -- Resultados
+  result: TEXT (PENDING/TAKE_PROFIT/STOP_LOSS/EXPIRED/MANUAL)
+  pnl: NUMERIC (lucro/perda bruto)
+  commission: NUMERIC (taxa Binance)
+  net_profit: NUMERIC (calculado automaticamente)
+
+  -- Gestão
+  risk_amount: NUMERIC
+  quantity: NUMERIC
+  leverage: INTEGER
+  margin_mode: TEXT (ISOLATED/CROSS)
+
+  -- Metadados
+  confidence_score: NUMERIC (score do ML)
+  simulated: BOOLEAN
+  created_at: TIMESTAMPTZ
+  closed_at: TIMESTAMPTZ
+  metadata: JSONB
+}
+```
 
 ---
 
