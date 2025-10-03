@@ -1446,6 +1446,8 @@
                ======================================== */
             async executeBinanceFuturesOrder(signal, connection, riskAmount) {
                 // URLs da Binance Futures
+                // Testnet: https://testnet.binancefuture.com (base)
+                // Produção: https://fapi.binance.com (base)
                 const FUTURES_TESTNET = 'https://testnet.binancefuture.com/fapi/v1';
                 const FUTURES_PROD = 'https://fapi.binance.com/fapi/v1';
                 const BASE_URL = connection.testnet ? FUTURES_TESTNET : FUTURES_PROD;
@@ -2775,8 +2777,11 @@ Duração: ${data.duration}
                     this.binanceWs.close();
                 }
 
-                const wsUrl = `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${interval}`;
-                console.log('🔌 Conectando ao WebSocket Binance:', wsUrl);
+                // Usar WebSocket de Futures (não Spot)
+                // Futures: wss://fstream.binance.com/ws/
+                // Spot: wss://stream.binance.com:9443/ws/
+                const wsUrl = `wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${interval}`;
+                console.log('🔌 Conectando ao WebSocket Binance Futures:', wsUrl);
 
                 this.binanceWs = new WebSocket(wsUrl);
 

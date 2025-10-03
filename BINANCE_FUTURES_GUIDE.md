@@ -46,11 +46,17 @@ O **Alpha-Learner** agora está 100% configurado para operar na **Binance Future
 
 **Endpoints utilizados:**
 ```javascript
-// Testnet
-https://testnet.binancefuture.com/fapi/v1
+// Testnet REST API
+https://testnet.binancefuture.com
 
-// Produção
-https://fapi.binance.com/fapi/v1
+// Testnet WebSocket
+wss://fstream.binancefuture.com
+
+// Produção REST API
+https://fapi.binance.com
+
+// Produção WebSocket
+wss://fstream.binance.com
 ```
 
 ### 2️⃣ STOP LOSS E TAKE PROFIT AUTOMÁTICOS
@@ -626,10 +632,34 @@ zIndex: 10000 /* deve estar acima de tudo */
 
 **URL:** https://testnet.binancefuture.com
 
-1. Criar conta na testnet
-2. Obter API keys de teste
-3. Ativar "Testnet" no Alpha-Learner
-4. Testar operações com dinheiro virtual
+**Como configurar:**
+
+1. **Acessar o Testnet:**
+   - URL: https://testnet.binancefuture.com
+   - Faça login (não precisa criar conta separada - use sua conta Binance normal)
+
+2. **Obter API Keys de Teste:**
+   - Clique no ícone de perfil (canto superior direito)
+   - Vá em "API Keys"
+   - Clique em "Create API Key"
+   - Complete a verificação 2FA
+   - **Copie e salve** as keys (API Key + Secret Key)
+
+3. **Configurar no Alpha-Learner:**
+   - Vá em "Conexões"
+   - Adicione nova conexão BINANCE
+   - ✅ **Marque a opção "Testnet"**
+   - Cole as API Keys
+   - Teste a conexão
+
+4. **Fundos de Teste:**
+   - O testnet fornece automaticamente fundos virtuais (USDT)
+   - Você pode "recarregar" os fundos quando acabarem
+
+5. **Testar operações:**
+   - Use o modo **Manual** primeiro
+   - Depois teste o modo **Automático**
+   - Monitore os resultados
 
 ### 🎮 2. MODO SIMULADO
 
