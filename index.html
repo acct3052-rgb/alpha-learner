@@ -972,24 +972,35 @@
                 throw new Error('Dados da cotação não encontrados');
             }
 
+            console.log(`📊 [AWESOMEAPI] Recebidos ${data.length} pontos de dados`);
+
             // Converter dados da AwesomeAPI para formato de candles
-            return data.map(quote => {
+            const candles = data.map(quote => {
                 const timestamp = parseInt(quote.timestamp) * 1000; // Converter para ms
                 const bid = parseFloat(quote.bid);
                 const ask = parseFloat(quote.ask);
                 const high = parseFloat(quote.high);
                 const low = parseFloat(quote.low);
 
+                // Usar a média entre bid e ask para maior precisão
+                const midPrice = (bid + ask) / 2;
+
                 // Criar candle a partir dos dados disponíveis
                 return {
                     timestamp: timestamp,
-                    open: bid, // Usar bid como preço de abertura
-                    high: high,
-                    low: low,
-                    close: bid, // Usar bid como preço de fechamento
+                    open: midPrice,
+                    high: Math.max(high, midPrice),
+                    low: Math.min(low, midPrice),
+                    close: midPrice, // Usar média bid/ask
                     volume: 0 // AwesomeAPI não fornece volume
                 };
             }).reverse(); // Reverter para ordem cronológica (mais antigo -> mais recente)
+
+            // Log da última cotação
+            const latest = candles[candles.length - 1];
+            console.log(`   💰 Última cotação: ${latest.close.toFixed(6)} (${new Date(latest.timestamp).toLocaleTimeString('pt-BR')})`);
+
+            return candles;
         }
 
         function validateAPIKey(provider, apiKey, secretKey = null) {
@@ -1690,12 +1701,23 @@
             }
 
             determineReason(outcome, durationMinutes) {
+                const mins = Math.floor(durationMinutes);
+
+                // Opções binárias: 5 minutos é o tempo padrão
+                const isBinaryOption = mins >= 4 && mins <= 6;
+
                 if (outcome === 'ACERTO') {
-                    return `Atingiu take profit em ${Math.floor(durationMinutes)}min`;
+                    if (isBinaryOption) {
+                        return `Opção binária: preço fechou favorável (${mins}min)`;
+                    }
+                    return `Atingiu take profit em ${mins}min`;
                 } else if (outcome === 'ERRO') {
-                    return `Atingiu stop loss em ${Math.floor(durationMinutes)}min`;
+                    if (isBinaryOption) {
+                        return `Opção binária: preço fechou desfavorável (${mins}min)`;
+                    }
+                    return `Atingiu stop loss em ${mins}min`;
                 } else if (outcome === 'EXPIRADO') {
-                    return `Expirou após ${Math.floor(durationMinutes)}min sem atingir alvos`;
+                    return `Expirou após ${mins}min sem atingir alvos`;
                 } else if (outcome === 'CANCELADO') {
                     return 'Cancelado manualmente';
                 }
@@ -4405,25 +4427,32 @@ useEffect(() => {
 
                         if (signal.direction === 'BUY') {
                             // CALL: precisa fechar ACIMA do preço de entrada
+                            console.log(`   🔍 [BUY/CALL] Verificando: ${currentPrice.toFixed(6)} > ${actualEntryPrice.toFixed(6)} ?`);
                             if (currentPrice > actualEntryPrice) {
                                 result = 'ACERTO';
                                 pnl = riskAmount * 0.85; // Payout típico 85%
+                                console.log(`   ✅ SIM! Preço fechou ACIMA. ACERTO!`);
                             } else {
                                 result = 'ERRO';
                                 pnl = -riskAmount;
+                                console.log(`   ❌ NÃO! Preço fechou ${currentPrice >= actualEntryPrice ? 'IGUAL' : 'ABAIXO'}. ERRO!`);
                             }
                         } else {
                             // PUT: precisa fechar ABAIXO do preço de entrada
+                            console.log(`   🔍 [SELL/PUT] Verificando: ${currentPrice.toFixed(6)} < ${actualEntryPrice.toFixed(6)} ?`);
                             if (currentPrice < actualEntryPrice) {
                                 result = 'ACERTO';
                                 pnl = riskAmount * 0.85; // Payout típico 85%
+                                console.log(`   ✅ SIM! Preço fechou ABAIXO. ACERTO!`);
                             } else {
                                 result = 'ERRO';
                                 pnl = -riskAmount;
+                                console.log(`   ❌ NÃO! Preço fechou ${currentPrice <= actualEntryPrice ? 'IGUAL' : 'ACIMA'}. ERRO!`);
                             }
                         }
 
                         console.log(`🏁 [BINARY] Resultado: ${result}`);
+                        console.log(`   Direção: ${signal.direction}`);
                         console.log(`   Entrada: ${actualEntryPrice.toFixed(6)}`);
                         console.log(`   Fechamento: ${currentPrice.toFixed(6)}`);
                         console.log(`   Diferença: ${(currentPrice - actualEntryPrice).toFixed(6)}`);
