@@ -610,6 +610,13 @@
                 requiresSecret: false,
                 baseUrl: 'https://api.polygon.io/v2',
                 description: 'Dados de ações e forex premium'
+            },
+            AWESOMEAPI: {
+                name: 'AwesomeAPI',
+                icon: '🇧🇷',
+                requiresSecret: false,
+                baseUrl: 'https://economia.awesomeapi.com.br',
+                description: 'API brasileira gratuita (USD-BRL, BTC-BRL, EUR-BRL, etc.)'
             }
         };
 
@@ -752,7 +759,8 @@
                     'ALPHA_VANTAGE': { calls: 0, maxCalls: 5, windowMs: 60000, lastReset: Date.now() },
                     'BINANCE': { calls: 0, maxCalls: 1200, windowMs: 60000, lastReset: Date.now() },
                     'COINGECKO': { calls: 0, maxCalls: 50, windowMs: 60000, lastReset: Date.now() },
-                    'POLYGON': { calls: 0, maxCalls: 5, windowMs: 60000, lastReset: Date.now() }
+                    'POLYGON': { calls: 0, maxCalls: 5, windowMs: 60000, lastReset: Date.now() },
+                    'AWESOMEAPI': { calls: 0, maxCalls: 100, windowMs: 60000, lastReset: Date.now() }
                 };
             }
 
