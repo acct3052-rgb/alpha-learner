@@ -1976,22 +1976,25 @@
                             price: signal.price,
                             stop_loss: signal.stopLoss,
                             take_profit: signal.takeProfit,
-                            risk_reward: signal.riskReward,
+                            risk_reward: signal.riskReward || 2.0,
                             status: signal.status || 'PENDENTE',
                             pnl: signal.pnl || 0,
-                            final_price: signal.finalPrice,
-                            entry_time: signal.entryTime,
-                            contributors: signal.contributors,
-                            divergence: signal.divergence,
-                            features: signal.features,
-                            data_source: signal.dataSource,
+                            final_price: signal.finalPrice || null,
+                            entry_time: signal.entryTime ? signal.entryTime.toISOString() : null,
+                            contributors: signal.contributors || null,
+                            divergence: signal.divergence || null,
+                            features: signal.features || null,
+                            data_source: signal.dataSource || 'REAL',
                             executed: signal.executed || false,
-                            execution_details: signal.executionDetails,
-                            tpsl_details: signal.tpslDetails,
+                            execution_details: signal.executionDetails || null,
+                            tpsl_details: signal.tpslDetails || null,
                             saved_at: new Date().toISOString()
                         });
 
-                    if (error) throw error;
+                    if (error) {
+                        console.error('❌ Erro ao salvar sinal no Supabase:', error);
+                        throw error;
+                    }
 
                     // Adicionar ao array local
                     this.signals_history.push({
