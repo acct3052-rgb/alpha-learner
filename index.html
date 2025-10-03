@@ -4145,9 +4145,48 @@ useEffect(() => {
 
                 let lastKnownPrice = null;
                 let samePriceCount = 0;
+                let lastSignalCandleTime = null; // Controle de sinais duplicados
+                let analysisCount = 0;
+
+                // 🕐 FUNÇÃO AUXILIAR: Calcular informações do candle
+                const getCandleInfo = () => {
+                    const now = new Date();
+                    const minutes = now.getMinutes();
+                    const seconds = now.getSeconds();
+
+                    // Início do candle atual (múltiplo de 5)
+                    const candleStartMinute = Math.floor(minutes / 5) * 5;
+                    const candleStart = new Date(now);
+                    candleStart.setMinutes(candleStartMinute);
+                    candleStart.setSeconds(0);
+                    candleStart.setMilliseconds(0);
+
+                    // Próximo candle
+                    const nextCandle = new Date(candleStart);
+                    nextCandle.setMinutes(candleStart.getMinutes() + 5);
+
+                    // Tempo restante até fechar
+                    const timeUntilClose = nextCandle - now;
+                    const secondsUntilClose = Math.floor(timeUntilClose / 1000);
+
+                    return {
+                        candleStart,
+                        nextCandle,
+                        timeUntilClose,
+                        secondsUntilClose,
+                        candleId: candleStart.getTime() // ID único do candle
+                    };
+                };
 
                 const interval = setInterval(async () => {
                     try {
+                        analysisCount++;
+                        const candleInfo = getCandleInfo();
+
+                        console.log(`\n⏰ [ANÁLISE #${analysisCount}] ${new Date().toLocaleTimeString('pt-BR')}`);
+                        console.log(`   📊 Candle atual: ${candleInfo.candleStart.toLocaleTimeString('pt-BR')}`);
+                        console.log(`   ⏳ Tempo até fechar: ${candleInfo.secondsUntilClose}s`);
+
                         const activeConn = apiManager.getActiveConnection();
 
                         // Verificar se há conexão API ativa
@@ -4157,9 +4196,18 @@ useEffect(() => {
                             return;
                         }
 
+                        // ⚠️ VALIDAÇÃO: Tempo mínimo antes do fechamento
+                        const MIN_TIME_BEFORE_CLOSE = 60; // 60 segundos
+                        if (candleInfo.secondsUntilClose < MIN_TIME_BEFORE_CLOSE) {
+                            console.warn(`⏭️ [SKIP] Faltam apenas ${candleInfo.secondsUntilClose}s para fechar. Aguardando próximo candle...`);
+                            return;
+                        }
+
                         // Buscar dados reais da API
                         try {
                             let symbolToFetch = symbol || 'BTCUSDT';
+
+                            console.log(`   📡 Buscando dados: ${symbolToFetch} (M5)`);
 
                             const realData = await fetchRealMarketData(
                                 activeConn.provider,
@@ -4180,10 +4228,12 @@ useEffect(() => {
                             // Verificar mudança de preço
                             const currentPrice = marketData.getLatestPrice();
                             if (currentPrice) {
+                                console.log(`   💰 Preço atual: ${currentPrice.close.toFixed(4)}`);
+
                                 if (lastKnownPrice && currentPrice.close === lastKnownPrice) {
                                     samePriceCount++;
                                     if (samePriceCount > 2) {
-                                        console.warn('⚠️ [LOOP] Preço não mudou por', samePriceCount, 'iterações.');
+                                        console.warn('   ⚠️ Preço estagnado por', samePriceCount, 'iterações');
                                     }
                                 } else {
                                     samePriceCount = 0;
@@ -4198,20 +4248,35 @@ useEffect(() => {
                             return;
                         }
 
+                        console.log(`   🔍 Analisando mercado...`);
                         const signal = alphaEngine.analyzeMarket(marketData, 'REAL', symbol);
 
-                        // ADICIONE ESTE LOG PARA DEPURAÇÃO
-    if (signal) {
-        console.log(`Sinal gerado: Score ${signal.score} | Mínimo necessário: ${minScoreRef.current}`);
-    }
+                        if (signal) {
+                            console.log(`   ✨ Sinal gerado: ${signal.direction} | Score: ${signal.score}% | ML: ${(signal.mlProbability * 100).toFixed(1)}%`);
+                        } else {
+                            console.log(`   ❌ Nenhum sinal encontrado`);
+                        }
 
-     if (signal && signal.score >= minScoreRef.current) {
-            console.log('%cSINAL APROVADO! Mostrando notificação...', 'color: #00ff88; font-weight: bold;');
-            
-            setSignals(prev => [signal, ...prev.slice(0, 9)]);
-            showNotification(`Novo sinal ${signal.direction} - Score: ${signal.score}%`);
-            playAlert();
-            scheduleSignalVerification(signal);
+                        // ⚠️ VALIDAÇÃO: Filtrar sinais duplicados no mesmo candle
+                        if (signal && lastSignalCandleTime === candleInfo.candleId) {
+                            console.warn(`   🚫 [FILTRADO] Sinal duplicado no mesmo candle. Ignorando.`);
+                            return;
+                        }
+
+                        if (signal && signal.score >= minScoreRef.current) {
+                            console.log('%c✅ SINAL APROVADO!', 'color: #00ff88; font-weight: bold; font-size: 14px;');
+                            console.log(`   📍 ${signal.direction} ${signal.symbol} @ ${signal.price.toFixed(4)}`);
+                            console.log(`   📊 Score: ${signal.score}% | ML: ${signal.mlConfidence}`);
+                            console.log(`   ⏰ Entrada: ${signal.entryTime.toLocaleTimeString('pt-BR')}`);
+                            console.log(`   🏁 Expiração: ${signal.expirationTime.toLocaleTimeString('pt-BR')}`);
+
+                            // Marcar candle atual como usado
+                            lastSignalCandleTime = candleInfo.candleId;
+
+                            setSignals(prev => [signal, ...prev.slice(0, 9)]);
+                            showNotification(`Novo sinal ${signal.direction} - Score: ${signal.score}%`);
+                            playAlert();
+                            scheduleSignalVerification(signal);
 
             if (window.telegramNotifier && window.telegramNotifier.isEnabled()) {
                 window.telegramNotifier.notifySignal(signal);
@@ -4245,13 +4310,22 @@ useEffect(() => {
             }
         } // <--- Fim do IF principal
 
-    } catch (error) {
-        console.error('❌ [LOOP] Erro:', error);
-        showNotification(`⚠️ Erro no loop principal: ${error.message}`);
-        setDataSource('ERROR');
-    }
-}, 30000);
-                return () => clearInterval(interval);
+                    } catch (error) {
+                        console.error('❌ [LOOP] Erro:', error);
+                        showNotification(`⚠️ Erro no loop principal: ${error.message}`);
+                        setDataSource('ERROR');
+                    }
+                }, 300000); // 5 minutos = 300.000ms
+
+                console.log('🔄 Sistema de análise iniciado');
+                console.log('   ⏱️ Intervalo: 5 minutos (300s)');
+                console.log('   ⚠️ Tempo mínimo antes do fechamento: 60s');
+                console.log('   🚫 Filtro de duplicados: ATIVO');
+
+                return () => {
+                    clearInterval(interval);
+                    console.log('⏹️ Sistema de análise parado');
+                };
             }, [isActive, marketData, alphaEngine, apiManager, dataSource, orderExecutor]); // Fixed: removed minScore, mode, riskAmount (using refs)
 
             // Optimized: Use a separate state for countdown timestamp instead of forcing re-render of all signals
