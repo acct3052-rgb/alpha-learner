@@ -2081,77 +2081,34 @@
                 }
             }
         }
-        class MarketDataSimulator {
+        class MarketDataManager {
             constructor() {
                 this.prices = [];
                 this.timeframe = 'M5';
                 this.lastPriceCheck = null;
                 this.stuckPriceCount = 0;
-                this.generateInitialData();
-            }
-
-            generateInitialData() {
-                const basePrice = 50000;
-                for (let i = 0; i < 200; i++) {
-                    const timestamp = Date.now() - (200 - i) * 5 * 60 * 1000;
-                    const price = basePrice + Math.sin(i * 0.1) * 1000 + Math.random() * 200 - 100;
-                    this.prices.push({
-                        timestamp,
-                        open: price,
-                        high: price + Math.random() * 50,
-                        low: price - Math.random() * 50,
-                        close: price + (Math.random() - 0.5) * 30,
-                        volume: Math.random() * 1000000
-                    });
-                }
-                console.log('📊 MarketData inicializado com', this.prices.length, 'candles');
+                console.log('📊 MarketData inicializado - aguardando dados de API');
             }
 
             getLatestPrice() {
+                if (this.prices.length === 0) {
+                    return null;
+                }
+
                 const latestPrice = this.prices[this.prices.length - 1];
-                
+
                 if (this.lastPriceCheck && this.lastPriceCheck.close === latestPrice.close) {
                     this.stuckPriceCount++;
                     if (this.stuckPriceCount > 3) {
                         console.warn('⚠️ PREÇO TRAVADO detectado! Mesmo preço por', this.stuckPriceCount, 'verificações');
                         console.warn('   Último preço:', latestPrice.close);
-                        console.warn('   Forçando atualização...');
-                        this.addNewCandle();
-                        this.stuckPriceCount = 0;
                     }
                 } else {
                     this.stuckPriceCount = 0;
                 }
-                
+
                 this.lastPriceCheck = { ...latestPrice };
                 return latestPrice;
-            }
-
-            addNewCandle() {
-                const lastCandle = this.prices[this.prices.length - 1];
-                const volatility = 150;
-                const trend = (Math.random() - 0.5) * volatility;
-                const newPrice = lastCandle.close + trend;
-                
-                const newCandle = {
-                    timestamp: Date.now(),
-                    open: newPrice,
-                    high: newPrice + Math.random() * 50,
-                    low: newPrice - Math.random() * 50,
-                    close: newPrice + (Math.random() - 0.5) * 40,
-                    volume: Math.random() * 1000000
-                };
-                
-                this.prices.push(newCandle);
-                if (this.prices.length > 200) {
-                    this.prices.shift();
-                }
-                
-                if (window.debugAudit && Math.random() < 0.1) {
-                    console.log('📈 Novo candle:', newCandle.close.toFixed(2), 'Variação:', trend.toFixed(2));
-                }
-                
-                return newCandle;
             }
 
             replaceWithRealData(realData) {
@@ -3651,7 +3608,7 @@ calculateVolumeScore(volume) {
             const [notification, setNotification] = useState(null);
             const [minScore, setMinScore] = useState(50);
             const [riskAmount, setRiskAmount] = useState(100);
-            const [dataSource, setDataSource] = useState('SIMULADO');
+            const [dataSource, setDataSource] = useState('DISCONNECTED');
             const [memoryDB, setMemoryDB] = useState(null);
             const [apiManager, setApiManager] = useState(null);
             const [orderExecutor, setOrderExecutor] = useState(null);
@@ -3695,7 +3652,7 @@ useEffect(() => {
             setMemoryDB(memoryDBRef.current);
             console.log('✅ MemoryDB inicializado com Supabase');
             
-            marketDataRef.current = new MarketDataSimulator();
+            marketDataRef.current = new MarketDataManager();
             setMarketData(marketDataRef.current);
             console.log('✅ MarketData inicializado');
             
@@ -3831,58 +3788,56 @@ useEffect(() => {
                 const interval = setInterval(async () => {
                     try {
                         const activeConn = apiManager.getActiveConnection();
-                        let currentDataSource = 'SIMULADO';
-                        
-                        const currentPrice = marketData.getLatestPrice();
-                        if (lastKnownPrice && currentPrice.close === lastKnownPrice) {
-                            samePriceCount++;
-                            if (samePriceCount > 2) {
-                                console.warn('⚠️ [LOOP] Preço não mudou por', samePriceCount, 'iterações. Forçando atualização...');
-                                marketData.addNewCandle();
-                                samePriceCount = 0;
-                            }
-                        } else {
-                            samePriceCount = 0;
-                        }
-                        lastKnownPrice = currentPrice.close;
-                        
-                        if (activeConn && activeConn.status === 'connected') {
-                            try {
-                                // Usar o símbolo escolhido pelo usuário
-                                let symbolToFetch = symbol || 'BTCUSDT';
-                                
-                                const realData = await fetchRealMarketData(
-                                    activeConn.provider,
-                                    activeConn.apiKey,
-                                    symbolToFetch,
-                                    'M5',
-                                    activeConn.secretKey
-                                );
-                                
-                                if (realData && realData.length > 0) {
-                                    marketData.replaceWithRealData(realData);
-                                    currentDataSource = 'REAL';
-                                    setDataSource('REAL');
-                                } else {
-                                    throw new Error('Array de dados vazio');
-                                }
-                            } catch (error) {
-                                if (dataSource === 'REAL') {
-                                    console.warn('⚠️ Erro ao buscar dados reais, voltando para simulação');
-                                    marketData.generateInitialData();
-                                } else {
-                                    marketData.addNewCandle();
-                                }
-                                currentDataSource = 'SIMULADO';
-                                setDataSource('SIMULADO');
-                            }
-                        } else {
-                            marketData.addNewCandle();
-                            currentDataSource = 'SIMULADO';
-                            setDataSource('SIMULADO');
+
+                        // Verificar se há conexão API ativa
+                        if (!activeConn || activeConn.status !== 'connected') {
+                            console.warn('⚠️ Nenhuma API conectada. Configure uma API para gerar sinais.');
+                            setDataSource('DISCONNECTED');
+                            return;
                         }
 
-                        const signal = alphaEngine.analyzeMarket(marketData, currentDataSource, symbol);
+                        // Buscar dados reais da API
+                        try {
+                            let symbolToFetch = symbol || 'BTCUSDT';
+
+                            const realData = await fetchRealMarketData(
+                                activeConn.provider,
+                                activeConn.apiKey,
+                                symbolToFetch,
+                                'M5',
+                                activeConn.secretKey
+                            );
+
+                            if (!realData || realData.length === 0) {
+                                throw new Error('Array de dados vazio da API');
+                            }
+
+                            // Atualizar dados do mercado
+                            marketData.replaceWithRealData(realData);
+                            setDataSource('REAL');
+
+                            // Verificar mudança de preço
+                            const currentPrice = marketData.getLatestPrice();
+                            if (currentPrice) {
+                                if (lastKnownPrice && currentPrice.close === lastKnownPrice) {
+                                    samePriceCount++;
+                                    if (samePriceCount > 2) {
+                                        console.warn('⚠️ [LOOP] Preço não mudou por', samePriceCount, 'iterações.');
+                                    }
+                                } else {
+                                    samePriceCount = 0;
+                                }
+                                lastKnownPrice = currentPrice.close;
+                            }
+
+                        } catch (error) {
+                            console.error('❌ Erro ao buscar dados da API:', error.message);
+                            showNotification(`⚠️ Erro na API: ${error.message}`);
+                            setDataSource('ERROR');
+                            return;
+                        }
+
+                        const signal = alphaEngine.analyzeMarket(marketData, 'REAL', symbol);
 
                         // ADICIONE ESTE LOG PARA DEPURAÇÃO
     if (signal) {
@@ -3929,17 +3884,10 @@ useEffect(() => {
             }
         } // <--- Fim do IF principal
 
-    } catch (error) { // <--- Agora o CATCH está correto
+    } catch (error) {
         console.error('❌ [LOOP] Erro:', error);
         showNotification(`⚠️ Erro no loop principal: ${error.message}`);
-
-        // Fallback para dados simulados se erro persistir
-        if (currentDataSource === 'REAL') {
-            console.warn('⚠️ Erro crítico com dados reais, voltando para simulação');
-            marketData.generateInitialData();
-            currentDataSource = 'SIMULADO';
-            setDataSource('SIMULADO');
-        }
+        setDataSource('ERROR');
     }
 }, 30000);
                 return () => clearInterval(interval);
@@ -4413,7 +4361,9 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                         <div className="status-dot"></div>
                         
                         <div className={`data-source-badge ${dataSource === 'REAL' ? 'data-source-real' : 'data-source-simulated'}`}>
-                            {dataSource === 'REAL' ? '🟢 DADOS EM TEMPO REAL' : '🟠 DADOS SIMULADOS'}
+                            {dataSource === 'REAL' ? '🟢 API CONECTADA - DADOS REAIS' :
+                             dataSource === 'DISCONNECTED' ? '🔴 API DESCONECTADA' :
+                             '⚠️ ERRO NA API'}
                         </div>
                         
                         {mode === 'auto' && isActive && orderExecutor && (
@@ -4893,11 +4843,11 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                             borderRadius: '12px',
                             fontSize: '10px',
                             fontWeight: 'bold',
-                            background: signal.dataSource === 'REAL' ? 'rgba(0, 255, 136, 0.2)' : 'rgba(255, 165, 0, 0.2)',
-                            color: signal.dataSource === 'REAL' ? '#00ff88' : '#ffa500',
-                            border: `1px solid ${signal.dataSource === 'REAL' ? '#00ff88' : '#ffa500'}`
+                            background: 'rgba(0, 255, 136, 0.2)',
+                            color: '#00ff88',
+                            border: '1px solid #00ff88'
                         }}>
-                            {signal.dataSource === 'REAL' ? '📡 Real' : '🔮 Simulado'}
+                            📡 API Real
                         </div>
                     </div>
                     
