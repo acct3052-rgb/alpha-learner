@@ -4470,12 +4470,17 @@ useEffect(() => {
 
                         verificationTimers.current.delete(signal.id);
 
+                        // Atualizar estado dos sinais
+                        signal.status = result;
+                        signal.pnl = pnl;
+                        signal.finalPrice = closingPrice;
+
                         if (window.auditSystemRef) {
                             try {
                                 window.auditSystemRef.updateSignalOutcome(
                                     signal.id,
                                     result,
-                                    currentPrice,
+                                    closingPrice,
                                     pnl,
                                     signal.executionDetails
                                 );
@@ -4488,7 +4493,30 @@ useEffect(() => {
                             orderExecutorRef.current.closePosition(signal.id, result, pnl);
                         }
 
-                        verifySignalOutcome(signal, result, pnl, currentPrice);
+                        // Atualizar ML
+                        if (alphaEngine && result !== 'EXPIRADO') {
+                            alphaEngine.learnFromTrade(signal, result);
+                        }
+
+                        // Atualizar UI
+                        setSignals(prevSignals =>
+                            prevSignals.map(s =>
+                                s.id === signal.id
+                                    ? { ...s, status: result, pnl, finalPrice: closingPrice }
+                                    : s
+                            )
+                        );
+
+                        // Notificar
+                        showNotification(
+                            result === 'ACERTO'
+                                ? `✅ Opção binária: +${formatBRL(pnl)}`
+                                : `❌ Opção binária: ${formatBRL(pnl)}`
+                        );
+
+                        if (window.telegramNotifier && window.telegramNotifier.isEnabled()) {
+                            window.telegramNotifier.notifyResult(signal, result, pnl);
+                        }
                     }, timeUntilExpiration);
 
                     verificationTimers.current.set(signal.id, {
