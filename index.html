@@ -1788,10 +1788,10 @@
                         log.metadata.symbol,
                         log.metadata.direction,
                         log.scoreRange,
-                        log.prices.theoretical ? log.prices.theoretical.toFixed(2) : 'N/A',
-                        log.prices.actualEntry ? log.prices.actualEntry.toFixed(2) : 'N/A',
-                        log.prices.slippage ? log.prices.slippage.toFixed(2) : 'N/A',
-                        log.prices.actualExit ? log.prices.actualExit.toFixed(2) : 'N/A',
+                        log.prices.theoretical ? log.prices.theoretical.toFixed(6) : 'N/A',
+                        log.prices.actualEntry ? log.prices.actualEntry.toFixed(6) : 'N/A',
+                        log.prices.slippage ? log.prices.slippage.toFixed(6) : 'N/A',
+                        log.prices.actualExit ? log.prices.actualExit.toFixed(6) : 'N/A',
                         log.prices.finalPnL !== null && log.prices.finalPnL !== undefined ? log.prices.finalPnL.toFixed(2) : '0.00',
                         log.outcome || 'PENDENTE',
                         (log.reason || 'Em andamento').replace(/,/g, ';'),
@@ -3539,9 +3539,9 @@ calculateVolumeScore(volume) {
                 message += `<b>Ativo:</b> ${signal.symbol}\n`;
                 message += `<b>Direção:</b> ${signal.direction}\n`;
                 message += `<b>Score:</b> ${signal.score}%\n`;
-                message += `<b>Preço:</b> R$ ${signal.price.toFixed(2)}\n`;
-                message += `<b>Stop Loss:</b> R$ ${signal.stopLoss.toFixed(2)}\n`;
-                message += `<b>Take Profit:</b> R$ ${signal.takeProfit.toFixed(2)}\n`;
+                message += `<b>Preço:</b> R$ ${signal.price.toFixed(6)}\n`;
+                message += `<b>Stop Loss:</b> R$ ${signal.stopLoss.toFixed(6)}\n`;
+                message += `<b>Take Profit:</b> R$ ${signal.takeProfit.toFixed(6)}\n`;
                 message += `<b>Timeframe:</b> ${signal.timeframe}\n`;
                 message += `<b>Fonte:</b> ${dataSource}\n`;
                 
@@ -3559,7 +3559,7 @@ calculateVolumeScore(volume) {
                 let message = `🤖 <b>ORDEM EXECUTADA</b>\n\n`;
                 message += `<b>Direção:</b> ${signal.direction}\n`;
                 message += `<b>Símbolo:</b> ${signal.symbol}\n`;
-                message += `<b>Preço Executado:</b> R$ ${executionResult.executedPrice.toFixed(2)}\n`;
+                message += `<b>Preço Executado:</b> R$ ${executionResult.executedPrice.toFixed(6)}\n`;
                 message += `<b>Quantidade:</b> ${executionResult.executedQty}\n`;
                 message += `<b>Order ID:</b> ${executionResult.orderId}\n`;
                 
@@ -3591,7 +3591,7 @@ calculateVolumeScore(volume) {
                 message += `<b>P&L:</b> R$ ${pnl.toFixed(2)}\n`;
                 
                 if (signal.finalPrice) {
-                    message += `<b>Preço Final:</b> R$ ${signal.finalPrice.toFixed(2)}\n`;
+                    message += `<b>Preço Final:</b> R$ ${signal.finalPrice.toFixed(6)}\n`;
                 }
                 
                 return message;
@@ -4233,15 +4233,23 @@ useEffect(() => {
                             // Verificar mudança de preço
                             const currentPrice = marketData.getLatestPrice();
                             if (currentPrice) {
-                                console.log(`   💰 Preço atual: ${currentPrice.close.toFixed(4)}`);
+                                console.log(`   💰 Preço atual: ${currentPrice.close.toFixed(6)}`);
 
-                                if (lastKnownPrice && currentPrice.close === lastKnownPrice) {
-                                    samePriceCount++;
-                                    if (samePriceCount > 2) {
-                                        console.warn('   ⚠️ Preço estagnado por', samePriceCount, 'iterações');
+                                if (lastKnownPrice) {
+                                    const priceDiff = Math.abs(currentPrice.close - lastKnownPrice);
+                                    console.log(`   📊 Variação: ${priceDiff.toFixed(6)} (${((priceDiff/lastKnownPrice)*100).toFixed(4)}%)`);
+
+                                    if (currentPrice.close === lastKnownPrice) {
+                                        samePriceCount++;
+                                        if (samePriceCount > 2) {
+                                            console.warn(`   ⚠️ Preço exatamente igual por ${samePriceCount} iterações`);
+                                        }
+                                    } else {
+                                        if (samePriceCount > 0) {
+                                            console.log(`   ✅ Preço mudou! Era ${lastKnownPrice.toFixed(6)} agora ${currentPrice.close.toFixed(6)}`);
+                                        }
+                                        samePriceCount = 0;
                                     }
-                                } else {
-                                    samePriceCount = 0;
                                 }
                                 lastKnownPrice = currentPrice.close;
                             }
@@ -4270,7 +4278,7 @@ useEffect(() => {
 
                         if (signal && signal.score >= minScoreRef.current) {
                             console.log('%c✅ SINAL APROVADO!', 'color: #00ff88; font-weight: bold; font-size: 14px;');
-                            console.log(`   📍 ${signal.direction} ${signal.symbol} @ ${signal.price.toFixed(4)}`);
+                            console.log(`   📍 ${signal.direction} ${signal.symbol} @ ${signal.price.toFixed(6)}`);
                             console.log(`   📊 Score: ${signal.score}% | ML: ${signal.mlConfidence}`);
                             console.log(`   ⏰ Entrada: ${signal.entryTime.toLocaleTimeString('pt-BR')}`);
                             console.log(`   🏁 Expiração: ${signal.expirationTime.toLocaleTimeString('pt-BR')}`);
@@ -4373,10 +4381,10 @@ useEffect(() => {
 
                     const entryTimer = setTimeout(() => {
                         entryPrice = marketDataRef.current?.getLatestPrice()?.close || signal.price;
-                        console.log(`✅ [BINARY] Entrada executada em ${new Date().toLocaleTimeString('pt-BR')} @ ${entryPrice.toFixed(4)}`);
+                        console.log(`✅ [BINARY] Entrada executada em ${new Date().toLocaleTimeString('pt-BR')} @ ${entryPrice.toFixed(6)}`);
 
                         // Notificar execução
-                        showNotification(`✅ Entrada executada: ${signal.direction} @ ${entryPrice.toFixed(4)}`);
+                        showNotification(`✅ Entrada executada: ${signal.direction} @ ${entryPrice.toFixed(6)}`);
                     }, timeUntilEntry);
 
                     // Validar APENAS no horário de expiração (não monitora continuamente)
@@ -4416,8 +4424,9 @@ useEffect(() => {
                         }
 
                         console.log(`🏁 [BINARY] Resultado: ${result}`);
-                        console.log(`   Entrada: ${actualEntryPrice.toFixed(4)}`);
-                        console.log(`   Fechamento: ${currentPrice.toFixed(4)}`);
+                        console.log(`   Entrada: ${actualEntryPrice.toFixed(6)}`);
+                        console.log(`   Fechamento: ${currentPrice.toFixed(6)}`);
+                        console.log(`   Diferença: ${(currentPrice - actualEntryPrice).toFixed(6)}`);
                         console.log(`   P&L: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`);
 
                         verificationTimers.current.delete(signal.id);
