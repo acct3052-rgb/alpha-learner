@@ -2762,24 +2762,72 @@ Duração: ${data.duration}
         class MarketDataManager {
             constructor() {
                 this.prices = [];
+                this.currentCandle = null; // Cache do candle em formação
                 this.timeframe = 'M5';
                 this.lastPriceCheck = null;
                 this.stuckPriceCount = 0;
                 this.binanceWs = null;
                 this.wsReconnectAttempts = 0;
-                this.maxReconnectAttempts = 5;
+                this.maxReconnectAttempts = 100; // Aumentado para manter conexão
+                this.pingInterval = null;
+                this.lastPongTime = Date.now();
+                this.restApiFailover = false;
                 console.log('📊 MarketData inicializado - aguardando dados de API');
+            }
+
+            // REST API Fallback
+            async fetchKlinesFromREST(symbol, interval = '5m', limit = 200) {
+                try {
+                    const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+                    const response = await fetch(url);
+                    const data = await response.json();
+
+                    const candles = data.map(k => ({
+                        timestamp: k[0],
+                        open: parseFloat(k[1]),
+                        high: parseFloat(k[2]),
+                        low: parseFloat(k[3]),
+                        close: parseFloat(k[4]),
+                        volume: parseFloat(k[5]),
+                        isClosed: true
+                    }));
+
+                    this.prices = candles;
+                    console.log('✅ Dados carregados via REST API:', candles.length, 'candles');
+                    return candles;
+                } catch (error) {
+                    console.error('❌ Erro ao buscar dados REST:', error);
+                    return null;
+                }
+            }
+
+            // Buscar candle específico por timestamp
+            getCandleByTimestamp(timestamp) {
+                // Buscar em candles fechados
+                const closedCandle = this.prices.find(p => p.timestamp === timestamp);
+                if (closedCandle) return closedCandle;
+
+                // Se for o candle atual em formação
+                if (this.currentCandle && this.currentCandle.timestamp === timestamp) {
+                    return this.currentCandle;
+                }
+
+                return null;
             }
 
             connectBinanceWebSocket(symbol, interval = '5m', onUpdate) {
                 if (this.binanceWs) {
                     console.log('🔌 Fechando conexão WebSocket anterior...');
                     this.binanceWs.close();
+                    if (this.pingInterval) {
+                        clearInterval(this.pingInterval);
+                    }
                 }
 
+                // Carregar dados históricos via REST antes de conectar WebSocket
+                this.fetchKlinesFromREST(symbol.toUpperCase(), interval, 200);
+
                 // Usar WebSocket de Futures (não Spot)
-                // Futures: wss://fstream.binance.com/ws/
-                // Spot: wss://stream.binance.com:9443/ws/
                 const wsUrl = `wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${interval}`;
                 console.log('🔌 Conectando ao WebSocket Binance Futures:', wsUrl);
 
@@ -2788,6 +2836,11 @@ Duração: ${data.duration}
                 this.binanceWs.onopen = () => {
                     console.log('✅ WebSocket Binance conectado!');
                     this.wsReconnectAttempts = 0;
+                    this.lastPongTime = Date.now();
+                    this.restApiFailover = false;
+
+                    // Iniciar sistema de ping/pong para manter conexão viva
+                    this.startPingPong(symbol, interval, onUpdate);
                 };
 
                 this.binanceWs.onmessage = (event) => {
@@ -2806,11 +2859,11 @@ Duração: ${data.duration}
                                 isClosed: kline.x
                             };
 
-                            // Atualizar apenas candles fechados
+                            // ATUALIZAR SEMPRE - tanto candles fechados quanto em formação
                             if (candle.isClosed) {
-                                console.log('📊 Novo candle recebido:', candle.close);
+                                console.log('📊 Candle FECHADO recebido:', candle.close, 'às', new Date(candle.timestamp).toLocaleTimeString('pt-BR'));
 
-                                // Adicionar novo candle aos preços
+                                // Adicionar aos candles históricos
                                 const existingIndex = this.prices.findIndex(p => p.timestamp === candle.timestamp);
                                 if (existingIndex >= 0) {
                                     this.prices[existingIndex] = candle;
@@ -2822,11 +2875,25 @@ Duração: ${data.duration}
                                     }
                                 }
 
+                                // Limpar candle atual
+                                this.currentCandle = null;
+
                                 // Callback para notificar atualização
                                 if (onUpdate) {
                                     onUpdate(candle);
                                 }
+                            } else {
+                                // Candle em formação - atualizar em tempo real
+                                this.currentCandle = candle;
+
+                                // Callback para atualizar UI em tempo real
+                                if (onUpdate) {
+                                    onUpdate(candle);
+                                }
                             }
+
+                            // Atualizar timestamp do último dado recebido
+                            this.lastPongTime = Date.now();
                         }
                     } catch (error) {
                         console.error('❌ Erro ao processar mensagem WebSocket:', error);
@@ -2840,7 +2907,11 @@ Duração: ${data.duration}
                 this.binanceWs.onclose = () => {
                     console.log('🔌 WebSocket Binance desconectado');
 
-                    // Tentar reconectar
+                    if (this.pingInterval) {
+                        clearInterval(this.pingInterval);
+                    }
+
+                    // Tentar reconectar indefinidamente com backoff
                     if (this.wsReconnectAttempts < this.maxReconnectAttempts) {
                         this.wsReconnectAttempts++;
                         const delay = Math.min(1000 * Math.pow(2, this.wsReconnectAttempts), 30000);
@@ -2850,11 +2921,40 @@ Duração: ${data.duration}
                             this.connectBinanceWebSocket(symbol, interval, onUpdate);
                         }, delay);
                     } else {
-                        console.error('❌ Máximo de tentativas de reconexão atingido');
+                        console.error('❌ Máximo de tentativas de reconexão atingido. Usando REST API como fallback...');
+                        this.restApiFailover = true;
+                        // Iniciar polling via REST API
+                        this.startRestApiPolling(symbol, interval, onUpdate);
                     }
                 };
 
                 return this.binanceWs;
+            }
+
+            startPingPong(symbol, interval, onUpdate) {
+                // Monitorar saúde da conexão a cada 3 minutos
+                this.pingInterval = setInterval(() => {
+                    const timeSinceLastPong = Date.now() - this.lastPongTime;
+
+                    if (timeSinceLastPong > 180000) { // 3 minutos sem dados
+                        console.warn('⚠️ WebSocket sem resposta há', Math.floor(timeSinceLastPong/1000), 's. Reconectando...');
+                        this.binanceWs.close();
+                    } else {
+                        console.log('💓 WebSocket saudável. Último dado há', Math.floor(timeSinceLastPong/1000), 's');
+                    }
+                }, 180000); // Check a cada 3 minutos
+            }
+
+            startRestApiPolling(symbol, interval, onUpdate) {
+                console.log('🔄 Iniciando polling REST API...');
+                const pollInterval = setInterval(async () => {
+                    const candles = await this.fetchKlinesFromREST(symbol, interval, 200);
+                    if (candles && candles.length > 0 && onUpdate) {
+                        onUpdate(candles[candles.length - 1]);
+                    }
+                }, 10000); // Poll a cada 10 segundos
+
+                return pollInterval;
             }
 
             disconnectBinanceWebSocket() {
@@ -2864,9 +2964,20 @@ Duração: ${data.duration}
                     this.binanceWs.close();
                     this.binanceWs = null;
                 }
+
+                if (this.pingInterval) {
+                    clearInterval(this.pingInterval);
+                    this.pingInterval = null;
+                }
             }
 
             getLatestPrice() {
+                // Priorizar candle atual em formação (mais recente)
+                if (this.currentCandle) {
+                    return this.currentCandle;
+                }
+
+                // Senão, retornar último candle fechado
                 if (this.prices.length === 0) {
                     return null;
                 }
@@ -5170,71 +5281,105 @@ useEffect(() => {
                     const timeUntilEntry = Math.max(0, entryTime - now);
                     const timeUntilExpiration = expirationTime ? Math.max(0, expirationTime - now) : (timeUntilEntry + (5 * 60 * 1000));
 
+                    // Calcular timestamp exato do candle de entrada (início do candle M5)
+                    const entryTimestamp = Math.floor(entryTime / 300000) * 300000; // Arredondar para M5
+                    const expirationTimestamp = expirationTime ? Math.floor(expirationTime / 300000) * 300000 : (entryTimestamp + 300000);
+
                     console.log(`📊 [BINARY] Sinal ${signal.id.toString().slice(0, 8)}...`);
                     console.log(`   Agora: ${new Date().toLocaleTimeString('pt-BR')}`);
                     console.log(`   Entrada: ${new Date(entryTime).toLocaleTimeString('pt-BR')} (em ${Math.floor(timeUntilEntry/1000)}s)`);
                     console.log(`   Expiração: ${new Date(expirationTime || entryTime + 5*60*1000).toLocaleTimeString('pt-BR')} (em ${Math.floor(timeUntilExpiration/1000)}s)`);
+                    console.log(`   🎯 Candle Entrada: ${new Date(entryTimestamp).toLocaleTimeString('pt-BR')}`);
+                    console.log(`   🎯 Candle Expiração: ${new Date(expirationTimestamp).toLocaleTimeString('pt-BR')}`);
 
-                    // Para opções binárias: capturar preço NO INÍCIO DO CANDLE DE ENTRADA
-                    let entryCandlePrice = null;
+                    // Armazenar dados do sinal para validação precisa
+                    let entryCandleData = null;
 
                     const entryTimer = setTimeout(() => {
-                        // Pegar o preço no início do candle de entrada
-                        const latestCandle = marketDataRef.current?.getLatestPrice();
-                        entryCandlePrice = latestCandle?.close || signal.price;
+                        // MÉTODO APRIMORADO: Buscar candle exato por timestamp
+                        const entryCandle = marketDataRef.current?.getCandleByTimestamp(entryTimestamp);
 
-                        console.log(`✅ [BINARY] Entrada executada em ${new Date().toLocaleTimeString('pt-BR')}`);
-                        console.log(`   📌 Preço no INÍCIO do candle de entrada: ${entryCandlePrice.toFixed(6)}`);
-                        console.log(`   💡 Este será comparado com o preço no FIM do candle de expiração`);
+                        if (entryCandle) {
+                            // Usar OPEN do candle de entrada (preço de abertura)
+                            entryCandleData = {
+                                timestamp: entryCandle.timestamp,
+                                open: entryCandle.open,
+                                close: entryCandle.close
+                            };
+                            console.log(`✅ [BINARY] Candle de entrada capturado com precisão`);
+                            console.log(`   📌 Timestamp: ${new Date(entryCandle.timestamp).toLocaleTimeString('pt-BR')}`);
+                            console.log(`   📌 Open: ${entryCandle.open.toFixed(6)} (será usado para comparação)`);
+                            console.log(`   📌 Close: ${entryCandle.close.toFixed(6)}`);
+                        } else {
+                            // Fallback: usar preço do sinal
+                            entryCandleData = {
+                                timestamp: entryTimestamp,
+                                open: signal.price,
+                                close: signal.price
+                            };
+                            console.warn(`⚠️ [BINARY] Candle de entrada não encontrado. Usando preço do sinal: ${signal.price.toFixed(6)}`);
+                        }
 
                         // Notificar execução
-                        showNotification(`✅ Entrada: ${signal.direction} @ ${entryCandlePrice.toFixed(6)}`);
+                        showNotification(`✅ Entrada: ${signal.direction} @ ${entryCandleData.open.toFixed(6)}`);
                     }, timeUntilEntry);
 
                     // Validar APENAS no horário de expiração (não monitora continuamente)
                     const verificationTimerId = setTimeout(() => {
                         clearTimeout(entryTimer);
 
-                        // Pegar preço no FECHAMENTO do candle de expiração
-                        const closingPrice = marketDataRef.current?.getLatestPrice()?.close;
+                        // MÉTODO APRIMORADO: Buscar candle exato de expiração por timestamp
+                        const expirationCandle = marketDataRef.current?.getCandleByTimestamp(expirationTimestamp);
 
-                        if (!closingPrice) {
-                            console.warn('⚠️ [BINARY] Preço não disponível na expiração');
+                        if (!expirationCandle) {
+                            console.warn('⚠️ [BINARY] Candle de expiração não disponível');
                             verifySignalOutcome(signal, 'EXPIRADO', 0, null);
                             return;
                         }
 
-                        // Fallback: se não capturou preço de entrada, usar preço do sinal
-                        const actualEntryPrice = entryCandlePrice || signal.price;
+                        if (!entryCandleData) {
+                            console.warn('⚠️ [BINARY] Dados de entrada não capturados');
+                            verifySignalOutcome(signal, 'EXPIRADO', 0, null);
+                            return;
+                        }
 
-                        // LÓGICA CORRETA DE OPÇÕES BINÁRIAS:
-                        // Comparar FECHAMENTO do candle de expiração com ABERTURA do candle de entrada
+                        // LÓGICA PRECISA DE OPÇÕES BINÁRIAS:
+                        // Comparar CLOSE do candle de expiração com OPEN do candle de entrada
+                        const entryPrice = entryCandleData.open;
+                        const closingPrice = expirationCandle.close;
+
+                        console.log(`🔍 [BINARY] Validação Precisa:`);
+                        console.log(`   📥 Entrada - Candle ${new Date(entryCandleData.timestamp).toLocaleTimeString('pt-BR')}`);
+                        console.log(`      Open: ${entryPrice.toFixed(6)} ← usado para comparação`);
+                        console.log(`   📤 Expiração - Candle ${new Date(expirationCandle.timestamp).toLocaleTimeString('pt-BR')}`);
+                        console.log(`      Close: ${closingPrice.toFixed(6)} ← usado para comparação`);
+
                         let result = null;
                         let pnl = 0;
 
                         if (signal.direction === 'BUY') {
                             // CALL: fechamento precisa ser MAIOR que entrada
-                            console.log(`   🔍 [BUY/CALL] Verificando: ${closingPrice.toFixed(6)} > ${actualEntryPrice.toFixed(6)} ?`);
-                            if (closingPrice > actualEntryPrice) {
+                            console.log(`   🔍 [BUY/CALL] ${closingPrice.toFixed(6)} > ${entryPrice.toFixed(6)} ?`);
+                            if (closingPrice > entryPrice) {
                                 result = 'ACERTO';
                                 pnl = riskAmount * 0.85; // Payout típico 85%
-                                console.log(`   ✅ SIM! Fechamento MAIOR que entrada. ACERTO!`);
+                                console.log(`   ✅ SIM! ACERTO (+${pnl.toFixed(2)})`);
                             } else {
                                 result = 'ERRO';
                                 pnl = -riskAmount;
-                                console.log(`   ❌ NÃO! Fechamento ${closingPrice >= actualEntryPrice ? 'IGUAL OU' : ''} MENOR que entrada. ERRO!`);
+                                console.log(`   ❌ NÃO! ERRO (${pnl.toFixed(2)})`);
                             }
                         } else {
                             // PUT: fechamento precisa ser MENOR que entrada
-                            console.log(`   🔍 [SELL/PUT] Verificando: ${closingPrice.toFixed(6)} < ${actualEntryPrice.toFixed(6)} ?`);
-                            if (closingPrice < actualEntryPrice) {
+                            console.log(`   🔍 [SELL/PUT] ${closingPrice.toFixed(6)} < ${entryPrice.toFixed(6)} ?`);
+                            if (closingPrice < entryPrice) {
                                 result = 'ACERTO';
                                 pnl = riskAmount * 0.85; // Payout típico 85%
-                                console.log(`   ✅ SIM! Fechamento MENOR que entrada. ACERTO!`);
+                                console.log(`   ✅ SIM! ACERTO (+${pnl.toFixed(2)})`);
                             } else {
                                 result = 'ERRO';
                                 pnl = -riskAmount;
-                                console.log(`   ❌ NÃO! Fechamento ${closingPrice <= actualEntryPrice ? 'IGUAL OU' : ''} MAIOR que entrada. ERRO!`);
+                                console.log(`   ❌ NÃO! ERRO (${pnl.toFixed(2)})`);
                             }
                         }
 
