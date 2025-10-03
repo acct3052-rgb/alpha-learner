@@ -5082,30 +5082,37 @@ useEffect(() => {
                 window.telegramNotifier.notifySignal(signal);
             }
             
-            // Verificação para o modo automático
-            if (modeRef.current === 'auto' && orderExecutorRef.current) {
+            // Processar sinal (automático OU manual)
+            if (orderExecutorRef.current) {
                 const executionResult = await orderExecutorRef.current.executeSignalAuto(
                     signal,
-                    modeRef.current, // Usando a referência
-                    riskAmount // Supondo que riskAmount também tenha uma ref se for dinâmico
+                    modeRef.current, // Pode ser 'auto' ou 'manual'
+                    riskAmount
                 );
-                
+
+                // Se foi executado automaticamente
                 if (executionResult.success) {
                     showNotification(
                         `🤖 ORDEM EXECUTADA: ${signal.direction} @ ${executionResult.executedPrice.toFixed(2)} | ID: ${executionResult.orderId}`
                     );
-                    
+
                     signal.executed = true;
                     signal.executionDetails = executionResult;
 
                     if (window.telegramNotifier && window.telegramNotifier.isEnabled()) {
                         window.telegramNotifier.notifyExecution(signal, executionResult);
                     }
-                    
+
                     // Atualiza o sinal na lista para mostrar que foi executado
                     setSignals(prev => prev.map(s => s.id === signal.id ? signal : s));
-                } else {
-                    showNotification(`⚠️ Falha na execução automática: ${executionResult.message}`);
+                }
+                // Se está em modo manual (popup aparecerá automaticamente)
+                else if (executionResult.reason === 'manual_mode') {
+                    console.log('✅ Sinal enviado para aprovação manual - popup deve aparecer');
+                }
+                // Se houve outro erro
+                else {
+                    showNotification(`⚠️ Erro: ${executionResult.message}`);
                 }
             }
         } // <--- Fim do IF principal
