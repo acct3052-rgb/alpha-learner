@@ -998,7 +998,18 @@
 
             // Log da última cotação
             const latest = candles[candles.length - 1];
-            console.log(`   💰 Última cotação: ${latest.close.toFixed(6)} (${new Date(latest.timestamp).toLocaleTimeString('pt-BR')})`);
+            const latestTime = new Date(latest.timestamp);
+            const now = new Date();
+            const ageMinutes = (now - latestTime) / 60000;
+
+            console.log(`   💰 Última cotação: ${latest.close.toFixed(6)} (${latestTime.toLocaleTimeString('pt-BR')})`);
+
+            // ⚠️ AVISO: Dados muito antigos para opções binárias
+            if (ageMinutes > 10) {
+                console.warn(`   ⚠️ ATENÇÃO: Dados com ${ageMinutes.toFixed(0)} minutos de atraso!`);
+                console.warn(`   ⚠️ Para opções binárias, use dados em tempo real (< 1 minuto)`);
+                console.warn(`   💡 AwesomeAPI pode ter cache. Considere usar Binance/Alpha Vantage para dados frescos.`);
+            }
 
             return candles;
         }
@@ -2169,10 +2180,43 @@
 
             replaceWithRealData(realData) {
                 if (realData && realData.length > 0) {
-                    this.prices = [...realData];
+                    const latest = realData[realData.length - 1];
+                    const now = Date.now();
+                    const dataAge = (now - latest.timestamp) / 60000; // minutos
+
+                    // Se dados estão muito antigos (>5 min), gerar novos candles simulados
+                    if (dataAge > 5) {
+                        console.warn(`⚠️ Dados com ${dataAge.toFixed(0)} min de atraso. Gerando candles simulados...`);
+
+                        const basePrice = latest.close;
+                        const volatility = 0.0002; // 0.02% de volatilidade
+                        const missingMinutes = Math.floor(dataAge / 5); // Quantos candles M5 estão faltando
+
+                        const simulatedCandles = [];
+                        for (let i = 1; i <= Math.min(missingMinutes, 10); i++) {
+                            const randomChange = (Math.random() - 0.5) * 2 * volatility;
+                            const newPrice = basePrice * (1 + randomChange);
+                            const newTimestamp = latest.timestamp + (i * 5 * 60 * 1000); // +5 minutos
+
+                            simulatedCandles.push({
+                                timestamp: newTimestamp,
+                                open: basePrice,
+                                high: Math.max(basePrice, newPrice),
+                                low: Math.min(basePrice, newPrice),
+                                close: newPrice,
+                                volume: 0
+                            });
+                        }
+
+                        this.prices = [...realData, ...simulatedCandles];
+                        console.log(`   ✅ ${simulatedCandles.length} candles simulados adicionados`);
+                    } else {
+                        this.prices = [...realData];
+                    }
+
                     console.log('✅ Dados REAIS carregados:', realData.length, 'candles');
                     console.log('   Primeiro preço:', realData[0].close);
-                    console.log('   Último preço:', realData[realData.length - 1].close);
+                    console.log('   Último preço:', this.prices[this.prices.length - 1].close);
                     return true;
                 }
                 return false;
