@@ -6137,9 +6137,10 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
 
                                         <div style={{ display: 'flex', gap: '10px' }}>
                                             {!isActive && (
-                                                <button 
+                                                <button
                                                     className="btn btn-primary"
                                                     onClick={() => {
+                                                        apiManager.updateStatus(provider, 'connected');
                                                         apiManager.setActive(provider);
                                                         showNotification(`${providerInfo.name} ativado`);
                                                         setUpdateTrigger(prev => prev + 1);
