@@ -5006,17 +5006,40 @@ useEffect(() => {
             useEffect(() => {
                 const loadSavedSignals = async () => {
                     if (memoryDB) {
-                        const savedSignals = await memoryDB.getAllSignals();
-                        const pendingSignals = savedSignals.filter(s => s.status === 'PENDENTE');
-                        if (pendingSignals.length > 0) {
-                            setSignals(pendingSignals);
-                            pendingSignals.forEach(signal => {
-                                scheduleSignalVerification(signal);
-                            });
+                        try {
+                            console.log('📥 Carregando sinais salvos do Supabase...');
+                            const savedSignals = await memoryDB.getAllSignals();
+
+                            // Ordenar por timestamp (mais recentes primeiro)
+                            savedSignals.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+                            // Carregar últimos 10 sinais (independente do status)
+                            const recentSignals = savedSignals.slice(0, 10);
+
+                            if (recentSignals.length > 0) {
+                                console.log(`✅ ${recentSignals.length} sinais carregados:`, {
+                                    pendentes: recentSignals.filter(s => s.status === 'PENDENTE').length,
+                                    acertos: recentSignals.filter(s => s.status === 'ACERTO').length,
+                                    erros: recentSignals.filter(s => s.status === 'ERRO').length
+                                });
+
+                                setSignals(recentSignals);
+
+                                // Re-agendar verificação apenas para sinais PENDENTES
+                                const pendingSignals = recentSignals.filter(s => s.status === 'PENDENTE');
+                                pendingSignals.forEach(signal => {
+                                    console.log('🔄 Re-agendando verificação para sinal:', signal.id);
+                                    scheduleSignalVerification(signal);
+                                });
+                            } else {
+                                console.log('📭 Nenhum sinal salvo encontrado');
+                            }
+                        } catch (error) {
+                            console.error('❌ Erro ao carregar sinais:', error);
                         }
                     }
                 };
-                
+
                 if (memoryDB) {
                     loadSavedSignals();
                 }
@@ -5397,6 +5420,16 @@ useEffect(() => {
                         signal.pnl = pnl;
                         signal.finalPrice = closingPrice;
 
+                        // 💾 PERSISTIR NO SUPABASE IMEDIATAMENTE
+                        if (window.memoryDB) {
+                            try {
+                                await window.memoryDB.saveSignal(signal);
+                                console.log('💾 Status do sinal atualizado no Supabase:', signal.id, '->', result);
+                            } catch (error) {
+                                console.error('❌ Erro ao salvar status no Supabase:', error);
+                            }
+                        }
+
                         if (window.auditSystemRef) {
                             try {
                                 window.auditSystemRef.updateSignalOutcome(
@@ -5488,6 +5521,16 @@ useEffect(() => {
                     signal.status = result;
                     signal.pnl = pnl;
                     signal.finalPrice = currentPrice;
+
+                    // 💾 PERSISTIR NO SUPABASE IMEDIATAMENTE
+                    if (window.memoryDB) {
+                        try {
+                            await window.memoryDB.saveSignal(signal);
+                            console.log('💾 [VERIFY] Status atualizado no Supabase:', signal.id, '->', result);
+                        } catch (error) {
+                            console.error('❌ [VERIFY] Erro ao salvar status no Supabase:', error);
+                        }
+                    }
 
                     if (window.auditSystemRef) {
                         try {
