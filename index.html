@@ -4626,10 +4626,37 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                             </div>
                             <div style={{ color: '#c0c0c0' }}>
                                 {assetType === 'crypto' && '• Binance, CoinGecko'}
-                                {assetType === 'forex' && '• Alpha Vantage, Polygon'}
+                                {assetType === 'forex' && '• Alpha Vantage, Polygon, AwesomeAPI'}
                                 {assetType === 'stock' && '• Alpha Vantage, Polygon'}
                             </div>
                         </div>
+
+                        <button
+                            className="btn-primary"
+                            style={{
+                                width: '100%',
+                                marginTop: '16px',
+                                padding: '12px',
+                                fontSize: '14px',
+                                fontWeight: 'bold'
+                            }}
+                            onClick={() => {
+                                // Mostrar confirmação visual
+                                const btn = event.target;
+                                const originalText = btn.textContent;
+                                btn.textContent = '✅ Configurações Salvas!';
+                                btn.style.backgroundColor = '#00ff88';
+                                btn.style.color = '#000';
+
+                                setTimeout(() => {
+                                    btn.textContent = originalText;
+                                    btn.style.backgroundColor = '';
+                                    btn.style.color = '';
+                                }, 2000);
+                            }}
+                        >
+                            💾 Confirmar Alterações
+                        </button>
                     </div>
 
                     <div className="card">
