@@ -3022,11 +3022,23 @@ calculateVolumeScore(volume) {
             takeProfit: direction === 'BUY' ? currentPrice.close + (atr * 4) : Math.max(0.01, currentPrice.close - (atr * 4)),
             riskReward: 2.0
         };
-    
+
+    // Calcular horários dos candles para opções binárias
+    const now = new Date();
     const timeframeMinutes = 5;
-    const entryTime = new Date();
-    entryTime.setMinutes(entryTime.getMinutes() + Math.floor(Math.random() * timeframeMinutes) + 1);
-    
+
+    // Calcular o PRÓXIMO candle (quando o atual fechar)
+    const currentMinutes = now.getMinutes();
+    const currentCandleStart = Math.floor(currentMinutes / timeframeMinutes) * timeframeMinutes;
+    const nextCandleStart = new Date(now);
+    nextCandleStart.setMinutes(currentCandleStart + timeframeMinutes);
+    nextCandleStart.setSeconds(0);
+    nextCandleStart.setMilliseconds(0);
+
+    // Horário de expiração (quando o candle de entrada fechar)
+    const expirationTime = new Date(nextCandleStart);
+    expirationTime.setMinutes(expirationTime.getMinutes() + timeframeMinutes);
+
     const signal = {
         id: Date.now() + Math.random(),
         timestamp: new Date(),
@@ -3035,7 +3047,8 @@ calculateVolumeScore(volume) {
         timeframe: 'M5',
         score: Math.round(normalizedScore),
         price: currentPrice.close,
-        entryTime: entryTime,
+        entryTime: nextCandleStart, // Entrada no INÍCIO do próximo candle
+        expirationTime: expirationTime, // Validação no FECHAMENTO do candle
         stopLoss: optimizedLevels.stopLoss,
         takeProfit: optimizedLevels.takeProfit,
         riskReward: optimizedLevels.riskReward,
@@ -3959,84 +3972,95 @@ useEffect(() => {
                 try {
                     const now = new Date().getTime();
                     const entryTime = new Date(signal.entryTime).getTime();
-                    const timeframeMs = signal.timeframe === 'M5' ? 5 * 60 * 1000 : 15 * 60 * 1000;
-                    
+                    const expirationTime = signal.expirationTime ? new Date(signal.expirationTime).getTime() : null;
+
+                    // Calcular delays para opções binárias
                     const timeUntilEntry = Math.max(0, entryTime - now);
-                    const verificationDelay = timeUntilEntry + timeframeMs;
-                    
-                    const monitoringInterval = setInterval(() => {
+                    const timeUntilExpiration = expirationTime ? Math.max(0, expirationTime - now) : (timeUntilEntry + (5 * 60 * 1000));
+
+                    console.log(`📊 [BINARY] Sinal ${signal.id.toString().slice(0, 8)}...`);
+                    console.log(`   Agora: ${new Date().toLocaleTimeString('pt-BR')}`);
+                    console.log(`   Entrada: ${new Date(entryTime).toLocaleTimeString('pt-BR')} (em ${Math.floor(timeUntilEntry/1000)}s)`);
+                    console.log(`   Expiração: ${new Date(expirationTime || entryTime + 5*60*1000).toLocaleTimeString('pt-BR')} (em ${Math.floor(timeUntilExpiration/1000)}s)`);
+
+                    // Guardar preço de entrada quando o candle começar
+                    let entryPrice = null;
+
+                    const entryTimer = setTimeout(() => {
+                        entryPrice = marketDataRef.current?.getLatestPrice()?.close || signal.price;
+                        console.log(`✅ [BINARY] Entrada executada em ${new Date().toLocaleTimeString('pt-BR')} @ ${entryPrice.toFixed(4)}`);
+
+                        // Notificar execução
+                        showNotification(`✅ Entrada executada: ${signal.direction} @ ${entryPrice.toFixed(4)}`);
+                    }, timeUntilEntry);
+
+                    // Validar APENAS no horário de expiração (não monitora continuamente)
+                    const verificationTimerId = setTimeout(() => {
+                        clearTimeout(entryTimer);
+
                         const currentPrice = marketDataRef.current?.getLatestPrice()?.close;
-                        if (!currentPrice) return;
-                        
-                        let shouldStop = false;
+                        if (!currentPrice) {
+                            console.warn('⚠️ [BINARY] Preço não disponível na expiração');
+                            verifySignalOutcome(signal, 'EXPIRADO', 0, null);
+                            return;
+                        }
+
+                        // Para opções binárias: compara preço de fechamento com preço de entrada
+                        const actualEntryPrice = entryPrice || signal.price;
                         let result = null;
                         let pnl = 0;
-                        
+
                         if (signal.direction === 'BUY') {
-                            if (currentPrice >= signal.takeProfit) {
+                            // CALL: precisa fechar ACIMA do preço de entrada
+                            if (currentPrice > actualEntryPrice) {
                                 result = 'ACERTO';
-                                pnl = riskAmount * 2;
-                                shouldStop = true;
-                            } else if (currentPrice <= signal.stopLoss) {
+                                pnl = riskAmount * 0.85; // Payout típico 85%
+                            } else {
                                 result = 'ERRO';
                                 pnl = -riskAmount;
-                                shouldStop = true;
                             }
                         } else {
-                            if (currentPrice <= signal.takeProfit) {
+                            // PUT: precisa fechar ABAIXO do preço de entrada
+                            if (currentPrice < actualEntryPrice) {
                                 result = 'ACERTO';
-                                pnl = riskAmount * 2;
-                                shouldStop = true;
-                            } else if (currentPrice >= signal.stopLoss) {
+                                pnl = riskAmount * 0.85; // Payout típico 85%
+                            } else {
                                 result = 'ERRO';
                                 pnl = -riskAmount;
-                                shouldStop = true;
                             }
                         }
-                        
-                        if (shouldStop) {
-                            clearInterval(monitoringInterval);
-                            clearTimeout(verificationTimerId);
-                            verificationTimers.current.delete(signal.id);
 
-                            if (window.auditSystemRef) {
-                                try {
-                                    if (window.debugAudit) {
-                                        console.log('🔍 [MONITOR] Atualizando auditoria');
-                                    }
-                                    window.auditSystemRef.updateSignalOutcome(
-                                        signal.id,
-                                        result,
-                                        currentPrice,
-                                        pnl,
-                                        signal.executionDetails
-                                    );
-                                } catch (error) {
-                                    console.error('❌ [MONITOR] Erro ao atualizar auditoria:', error);
-                                }
+                        console.log(`🏁 [BINARY] Resultado: ${result}`);
+                        console.log(`   Entrada: ${actualEntryPrice.toFixed(4)}`);
+                        console.log(`   Fechamento: ${currentPrice.toFixed(4)}`);
+                        console.log(`   P&L: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`);
+
+                        verificationTimers.current.delete(signal.id);
+
+                        if (window.auditSystemRef) {
+                            try {
+                                window.auditSystemRef.updateSignalOutcome(
+                                    signal.id,
+                                    result,
+                                    currentPrice,
+                                    pnl,
+                                    signal.executionDetails
+                                );
+                            } catch (error) {
+                                console.error('❌ [BINARY] Erro ao atualizar auditoria:', error);
                             }
-                            
-                            if (orderExecutorRef.current && signal.executed) {
-                                orderExecutorRef.current.closePosition(signal.id, result, pnl);
-                            }
-                            
-                            verifySignalOutcome(signal, result, pnl, currentPrice);
                         }
-                    }, 5000);
-                    
-                    const verificationTimerId = setTimeout(() => {
-                        clearInterval(monitoringInterval);
-                        
+
                         if (orderExecutorRef.current && signal.executed) {
-                            orderExecutorRef.current.closePosition(signal.id, 'EXPIRADO', 0);
+                            orderExecutorRef.current.closePosition(signal.id, result, pnl);
                         }
-                        
-                        verifySignalOutcome(signal);
-                    }, verificationDelay);
+
+                        verifySignalOutcome(signal, result, pnl, currentPrice);
+                    }, timeUntilExpiration);
 
                     verificationTimers.current.set(signal.id, {
                         timer: verificationTimerId,
-                        interval: monitoringInterval
+                        entryTimer: entryTimer
                     });
                 } catch (error) {
                     console.error('Erro ao agendar verificação:', error);
@@ -4932,31 +4956,64 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                     </div>
 
                     {signal.status === 'PENDENTE' && (
-                        <div style={{
-                            background: 'rgba(0, 184, 217, 0.15)',
-                            border: '1px solid rgba(0, 184, 217, 0.4)',
-                            borderRadius: '8px',
-                            padding: '10px 12px',
-                            marginBottom: '10px',
-                            fontSize: '13px',
-                            fontWeight: 'bold',
-                            color: '#00b8d9',
-                            textAlign: 'center',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '8px'
-                        }}>
-                            <span style={{ fontSize: '16px' }}>🎯</span>
-                            <div>
-                                <div style={{ fontSize: '11px', opacity: 0.8, marginBottom: '2px' }}>
-                                    HORÁRIO EXATO DE ENTRADA
-                                </div>
-                                <div style={{ fontSize: '16px', letterSpacing: '1px' }}>
-                                    {getExactEntryTime()}
+                        <>
+                            <div style={{
+                                background: 'rgba(0, 184, 217, 0.15)',
+                                border: '1px solid rgba(0, 184, 217, 0.4)',
+                                borderRadius: '8px',
+                                padding: '10px 12px',
+                                marginBottom: '10px',
+                                fontSize: '13px',
+                                fontWeight: 'bold',
+                                color: '#00b8d9',
+                                textAlign: 'center',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                            }}>
+                                <span style={{ fontSize: '16px' }}>🎯</span>
+                                <div>
+                                    <div style={{ fontSize: '11px', opacity: 0.8, marginBottom: '2px' }}>
+                                        ENTRADA (Início do Candle)
+                                    </div>
+                                    <div style={{ fontSize: '16px', letterSpacing: '1px' }}>
+                                        {getExactEntryTime()}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                            {signal.expirationTime && (
+                                <div style={{
+                                    background: 'rgba(255, 107, 107, 0.15)',
+                                    border: '1px solid rgba(255, 107, 107, 0.4)',
+                                    borderRadius: '8px',
+                                    padding: '10px 12px',
+                                    marginBottom: '10px',
+                                    fontSize: '13px',
+                                    fontWeight: 'bold',
+                                    color: '#ff6b6b',
+                                    textAlign: 'center',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px'
+                                }}>
+                                    <span style={{ fontSize: '16px' }}>🏁</span>
+                                    <div>
+                                        <div style={{ fontSize: '11px', opacity: 0.8, marginBottom: '2px' }}>
+                                            EXPIRAÇÃO (Fechamento do Candle)
+                                        </div>
+                                        <div style={{ fontSize: '16px', letterSpacing: '1px' }}>
+                                            {new Date(signal.expirationTime).toLocaleTimeString('pt-BR', {
+                                                hour: '2-digit',
+                                                minute: '2-digit',
+                                                second: '2-digit'
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </>
                     )}
                     
                     {signal.divergence && (
