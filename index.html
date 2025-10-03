@@ -5348,7 +5348,7 @@ useEffect(() => {
                     }, timeUntilEntry);
 
                     // Validar APENAS no horário de expiração (não monitora continuamente)
-                    const verificationTimerId = setTimeout(() => {
+                    const verificationTimerId = setTimeout(async () => {
                         clearTimeout(entryTimer);
 
                         // MÉTODO APRIMORADO: Buscar candle exato de expiração por timestamp
@@ -5408,9 +5408,9 @@ useEffect(() => {
 
                         console.log(`🏁 [BINARY] Resultado Final: ${result}`);
                         console.log(`   Direção: ${signal.direction}`);
-                        console.log(`   Preço ENTRADA (início candle): ${actualEntryPrice.toFixed(6)}`);
+                        console.log(`   Preço ENTRADA (início candle): ${entryPrice.toFixed(6)}`);
                         console.log(`   Preço FECHAMENTO (fim candle): ${closingPrice.toFixed(6)}`);
-                        console.log(`   Diferença: ${(closingPrice - actualEntryPrice).toFixed(6)}`);
+                        console.log(`   Diferença: ${(closingPrice - entryPrice).toFixed(6)}`);
                         console.log(`   P&L: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`);
 
                         verificationTimers.current.delete(signal.id);
