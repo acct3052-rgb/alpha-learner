@@ -1080,14 +1080,40 @@
            SISTEMA DE EXECUÇÃO DE ORDENS
            ======================================== */
 
+        /* ========================================
+           CONFIGURAÇÕES BINANCE FUTURES
+           ======================================== */
+        const FUTURES_CONFIG = {
+            exchange: 'binance',
+            market: 'futures',
+            marginMode: 'ISOLATED',        // Margem isolada (não Cross)
+            leverage: 2,                   // Alavancagem padrão: 2x
+            timeframe: '5m',               // Candles de 5 minutos
+            riskPerTrade: 0.02,            // 2% do capital por trade
+            stopLossPercent: 0.02,         // Stop Loss: -2%
+            takeProfitPercent: 0.03,       // Take Profit: +3%
+            positionDuration: 300000,      // 5 minutos em milissegundos
+            modoAutomatico: false,         // Inicia em modo manual
+            maxPositions: 1,               // Máximo 1 posição simultânea
+            circuitBreakerLosses: 3        // Para após 3 perdas seguidas
+        };
+
         class OrderExecutionManager {
             constructor(apiManager) {
                 this.apiManager = apiManager;
                 this.activePositions = new Map();
                 this.executionHistory = [];
                 this.systemLogs = [];
-                this.maxPositions = 3;
+                this.positionTimers = new Map();           // Timers de fechamento
+                this.consecutiveLosses = 0;                // Contador de perdas seguidas
+                this.circuitBreakerActive = false;         // Circuit breaker
+                this.pendingSignal = null;                 // Sinal pendente (modo manual)
+
+                // Configurações do sistema
+                this.config = { ...FUTURES_CONFIG };
+                this.maxPositions = this.config.maxPositions;
                 this.virtualBalance = 10000;
+
                 this.loadFromStorage();
             }
 
@@ -1134,45 +1160,57 @@
                 console.log(`[${type.toUpperCase()}] ${message}`);
             }
 
+            /* ========================================
+               PROCESSAMENTO DE SINAL (MANUAL OU AUTOMÁTICO)
+               ======================================== */
             async executeSignalAuto(signal, mode, riskAmount) {
+                // Verificar circuit breaker
+                if (this.circuitBreakerActive) {
+                    this.log('🚨 Circuit Breaker ativo! Sistema pausado após perdas consecutivas', 'error');
+                    return {
+                        success: false,
+                        reason: 'circuit_breaker',
+                        message: 'Sistema pausado por segurança. Reative manualmente.'
+                    };
+                }
+
+                // Se modo MANUAL: armazenar sinal e retornar (interface mostrará popup)
                 if (mode !== 'auto') {
-                    this.log('Modo manual - execução não automática', 'info');
+                    this.pendingSignal = {
+                        signal,
+                        riskAmount,
+                        calculatedData: this.calculateTradeData(signal, riskAmount)
+                    };
+
+                    this.log('📋 Novo sinal detectado - aguardando confirmação manual', 'info');
                     return {
                         success: false,
                         reason: 'manual_mode',
-                        message: 'Modo manual ativo'
+                        message: 'Modo manual ativo - sinal aguardando confirmação',
+                        pendingSignal: this.pendingSignal
                     };
                 }
 
-                if (this.activePositions.size >= this.maxPositions) {
-                    this.log(`Limite de ${this.maxPositions} posições atingido`, 'warning');
-                    return {
-                        success: false,
-                        reason: 'max_positions',
-                        message: `Máximo de ${this.maxPositions} posições simultâneas atingido`
-                    };
-                }
+                // Modo AUTOMÁTICO: executar diretamente
+                return await this.executeSignal(signal, riskAmount);
+            }
 
-                if (riskAmount > this.virtualBalance * 0.02) {
-                    this.log(`Risco muito alto: R$${riskAmount} > 2% do saldo`, 'warning');
+            /* ========================================
+               EXECUÇÃO EFETIVA DO SINAL
+               ======================================== */
+            async executeSignal(signal, riskAmount) {
+                // Validações de segurança
+                const validation = this.validateTrade(signal, riskAmount);
+                if (!validation.valid) {
+                    this.log(`❌ Validação falhou: ${validation.reason}`, 'warning');
                     return {
                         success: false,
-                        reason: 'risk_too_high',
-                        message: 'Risco excede 2% do saldo disponível'
-                    };
-                }
-
-                if (riskAmount > this.virtualBalance) {
-                    this.log('Saldo insuficiente', 'error');
-                    return {
-                        success: false,
-                        reason: 'insufficient_balance',
-                        message: 'Saldo insuficiente para executar ordem'
+                        reason: validation.reason,
+                        message: validation.message
                     };
                 }
 
                 const activeConn = this.apiManager.getActiveConnection();
-                
                 if (!activeConn) {
                     this.log('Sem conexão ativa', 'error');
                     return {
@@ -1182,32 +1220,38 @@
                     };
                 }
 
-                this.log(`🤖 Iniciando execução: ${signal.direction} ${signal.symbol}`, 'info');
+                this.log(`🤖 Executando: ${signal.direction} ${signal.symbol} | Confiança: ${signal.score}%`, 'info');
 
                 try {
                     let orderResult;
-                    
-                    switch(activeConn.provider) {
-                        case 'BINANCE':
-                            orderResult = await this.executeBinanceTestnetOrder(signal, activeConn, riskAmount);
-                            break;
-                        default:
-                            orderResult = await this.executeSimulatedOrder(signal, riskAmount);
-                            break;
+
+                    // Executar na Binance Futures
+                    if (activeConn.provider === 'BINANCE') {
+                        orderResult = await this.executeBinanceFuturesOrder(signal, activeConn, riskAmount);
+                    } else {
+                        orderResult = await this.executeSimulatedOrder(signal, riskAmount);
                     }
 
                     if (orderResult.success) {
+                        // Registrar posição ativa
                         this.activePositions.set(signal.id, {
                             signal,
                             orderResult,
                             openTime: new Date(),
-                            riskAmount
+                            riskAmount,
+                            stopLossOrderId: orderResult.stopLossOrderId,
+                            takeProfitOrderId: orderResult.takeProfitOrderId
                         });
 
+                        // Reduzir saldo virtual
                         this.virtualBalance -= riskAmount;
 
+                        // Iniciar timer de fechamento (5 minutos)
+                        this.startPositionTimer(signal.id);
+
+                        // Registrar execução
                         this.recordExecution(signal, orderResult);
-                        this.log(`✅ Ordem executada: ${orderResult.orderId}`, 'success');
+                        this.log(`✅ Ordem executada: ${orderResult.orderId} | SL/TP configurados`, 'success');
                         this.saveToStorage();
                     }
 
@@ -1223,48 +1267,252 @@
                 }
             }
 
-            async executeBinanceTestnetOrder(signal, connection, riskAmount) {
-                const TESTNET_URL = 'https://testnet.binance.vision/api/v3';
-                
+            /* ========================================
+               VALIDAÇÕES DE SEGURANÇA
+               ======================================== */
+            validateTrade(signal, riskAmount) {
+                if (this.activePositions.size >= this.maxPositions) {
+                    return {
+                        valid: false,
+                        reason: 'max_positions',
+                        message: `Máximo de ${this.maxPositions} posição(ões) simultânea(s) atingido`
+                    };
+                }
+
+                if (riskAmount > this.virtualBalance * this.config.riskPerTrade) {
+                    return {
+                        valid: false,
+                        reason: 'risk_too_high',
+                        message: `Risco excede ${this.config.riskPerTrade * 100}% do saldo`
+                    };
+                }
+
+                if (riskAmount > this.virtualBalance) {
+                    return {
+                        valid: false,
+                        reason: 'insufficient_balance',
+                        message: 'Saldo insuficiente para executar ordem'
+                    };
+                }
+
+                return { valid: true };
+            }
+
+            /* ========================================
+               CALCULAR DADOS DO TRADE
+               ======================================== */
+            calculateTradeData(signal, riskAmount) {
+                const price = signal.price;
+                const stopLoss = signal.stopLoss;
+                const takeProfit = signal.takeProfit;
+                const quantity = this.calculatePositionSize(signal, riskAmount);
+
+                return {
+                    symbol: signal.symbol,
+                    direction: signal.direction,
+                    price: price.toFixed(2),
+                    quantity: quantity.toFixed(6),
+                    stopLoss: stopLoss.toFixed(2),
+                    takeProfit: takeProfit.toFixed(2),
+                    stopLossPercent: ((Math.abs(price - stopLoss) / price) * 100).toFixed(2),
+                    takeProfitPercent: ((Math.abs(takeProfit - price) / price) * 100).toFixed(2),
+                    riskAmount: riskAmount.toFixed(2),
+                    potentialProfit: (riskAmount * (this.config.takeProfitPercent / this.config.stopLossPercent)).toFixed(2),
+                    duration: `${this.config.positionDuration / 60000} minutos`
+                };
+            }
+
+            /* ========================================
+               BINANCE FUTURES - EXECUÇÃO COMPLETA
+               ======================================== */
+            async executeBinanceFuturesOrder(signal, connection, riskAmount) {
+                // URLs da Binance Futures
+                const FUTURES_TESTNET = 'https://testnet.binancefuture.com/fapi/v1';
+                const FUTURES_PROD = 'https://fapi.binance.com/fapi/v1';
+                const BASE_URL = connection.testnet ? FUTURES_TESTNET : FUTURES_PROD;
+
                 try {
+                    // 1. Configurar alavancagem e margem isolada
+                    await this.setBinanceLeverage(BASE_URL, signal.symbol, connection);
+                    await this.setBinanceMarginType(BASE_URL, signal.symbol, connection);
+
+                    // 2. Calcular quantidade
                     const quantity = this.calculatePositionSize(signal, riskAmount);
-                    
-                    const params = new URLSearchParams({
+                    const side = signal.direction === 'LONG' ? 'BUY' : 'SELL';
+
+                    // 3. Abrir posição MARKET
+                    this.log(`📤 Abrindo posição ${side} ${signal.symbol} | Qtd: ${quantity}`, 'info');
+
+                    const orderParams = new URLSearchParams({
                         symbol: signal.symbol,
-                        side: signal.direction,
+                        side: side,
                         type: 'MARKET',
                         quantity: quantity.toString(),
-                        timestamp: Date.now()
+                        timestamp: Date.now().toString()
+                    });
+
+                    const orderSignature = await this.signBinanceRequest(orderParams.toString(), connection.secretKey);
+                    orderParams.append('signature', orderSignature);
+
+                    const orderResponse = await fetch(`${BASE_URL}/order?${orderParams.toString()}`, {
+                        method: 'POST',
+                        headers: { 'X-MBX-APIKEY': connection.apiKey }
+                    });
+
+                    const orderData = await orderResponse.json();
+
+                    if (!orderResponse.ok) {
+                        throw new Error(orderData.msg || 'Erro ao abrir posição');
+                    }
+
+                    const executedPrice = parseFloat(orderData.avgPrice || signal.price);
+
+                    // 4. Definir Stop Loss
+                    const stopLossOrderId = await this.setBinanceStopLoss(
+                        BASE_URL,
+                        signal.symbol,
+                        signal.stopLoss,
+                        quantity,
+                        side === 'BUY' ? 'SELL' : 'BUY',
+                        connection
+                    );
+
+                    // 5. Definir Take Profit
+                    const takeProfitOrderId = await this.setBinanceTakeProfit(
+                        BASE_URL,
+                        signal.symbol,
+                        signal.takeProfit,
+                        quantity,
+                        side === 'BUY' ? 'SELL' : 'BUY',
+                        connection
+                    );
+
+                    this.log(`✅ Posição aberta | SL: ${signal.stopLoss} | TP: ${signal.takeProfit}`, 'success');
+
+                    return {
+                        success: true,
+                        orderId: orderData.orderId,
+                        executedQty: quantity,
+                        executedPrice: executedPrice,
+                        commission: parseFloat(orderData.commission || 0),
+                        timestamp: orderData.updateTime,
+                        stopLossOrderId: stopLossOrderId,
+                        takeProfitOrderId: takeProfitOrderId,
+                        leverage: this.config.leverage,
+                        marginMode: this.config.marginMode
+                    };
+
+                } catch (error) {
+                    this.log(`❌ Erro Binance Futures: ${error.message}`, 'error');
+                    this.log(`⚠️ Usando modo simulado como fallback`, 'warning');
+                    return await this.executeSimulatedOrder(signal, riskAmount);
+                }
+            }
+
+            /* Configurar alavancagem */
+            async setBinanceLeverage(baseUrl, symbol, connection) {
+                try {
+                    const params = new URLSearchParams({
+                        symbol: symbol,
+                        leverage: this.config.leverage.toString(),
+                        timestamp: Date.now().toString()
                     });
 
                     const signature = await this.signBinanceRequest(params.toString(), connection.secretKey);
                     params.append('signature', signature);
 
-                    const response = await fetch(`${TESTNET_URL}/order?${params.toString()}`, {
+                    await fetch(`${baseUrl}/leverage?${params.toString()}`, {
                         method: 'POST',
-                        headers: {
-                            'X-MBX-APIKEY': connection.apiKey
-                        }
+                        headers: { 'X-MBX-APIKEY': connection.apiKey }
+                    });
+
+                    this.log(`⚙️ Alavancagem configurada: ${this.config.leverage}x`, 'info');
+                } catch (error) {
+                    this.log(`⚠️ Erro ao configurar alavancagem: ${error.message}`, 'warning');
+                }
+            }
+
+            /* Configurar margem isolada */
+            async setBinanceMarginType(baseUrl, symbol, connection) {
+                try {
+                    const params = new URLSearchParams({
+                        symbol: symbol,
+                        marginType: this.config.marginMode,
+                        timestamp: Date.now().toString()
+                    });
+
+                    const signature = await this.signBinanceRequest(params.toString(), connection.secretKey);
+                    params.append('signature', signature);
+
+                    await fetch(`${baseUrl}/marginType?${params.toString()}`, {
+                        method: 'POST',
+                        headers: { 'X-MBX-APIKEY': connection.apiKey }
+                    });
+
+                    this.log(`⚙️ Margem configurada: ${this.config.marginMode}`, 'info');
+                } catch (error) {
+                    // Ignora erro se margem já estiver configurada
+                    if (!error.message.includes('No need to change')) {
+                        this.log(`⚠️ Erro ao configurar margem: ${error.message}`, 'warning');
+                    }
+                }
+            }
+
+            /* Definir Stop Loss */
+            async setBinanceStopLoss(baseUrl, symbol, stopPrice, quantity, side, connection) {
+                try {
+                    const params = new URLSearchParams({
+                        symbol: symbol,
+                        side: side,
+                        type: 'STOP_MARKET',
+                        stopPrice: stopPrice.toString(),
+                        quantity: quantity.toString(),
+                        timestamp: Date.now().toString()
+                    });
+
+                    const signature = await this.signBinanceRequest(params.toString(), connection.secretKey);
+                    params.append('signature', signature);
+
+                    const response = await fetch(`${baseUrl}/order?${params.toString()}`, {
+                        method: 'POST',
+                        headers: { 'X-MBX-APIKEY': connection.apiKey }
                     });
 
                     const data = await response.json();
-
-                    if (response.ok) {
-                        return {
-                            success: true,
-                            orderId: data.orderId,
-                            executedQty: data.executedQty,
-                            executedPrice: data.fills?.[0]?.price || signal.price,
-                            commission: data.fills?.[0]?.commission || 0,
-                            timestamp: data.transactTime
-                        };
-                    } else {
-                        throw new Error(data.msg || 'Erro ao executar ordem Binance');
-                    }
+                    return data.orderId || null;
 
                 } catch (error) {
-                    this.log(`Fallback para simulação: ${error.message}`, 'warning');
-                    return await this.executeSimulatedOrder(signal, riskAmount);
+                    this.log(`⚠️ Erro ao definir Stop Loss: ${error.message}`, 'warning');
+                    return null;
+                }
+            }
+
+            /* Definir Take Profit */
+            async setBinanceTakeProfit(baseUrl, symbol, takeProfitPrice, quantity, side, connection) {
+                try {
+                    const params = new URLSearchParams({
+                        symbol: symbol,
+                        side: side,
+                        type: 'TAKE_PROFIT_MARKET',
+                        stopPrice: takeProfitPrice.toString(),
+                        quantity: quantity.toString(),
+                        timestamp: Date.now().toString()
+                    });
+
+                    const signature = await this.signBinanceRequest(params.toString(), connection.secretKey);
+                    params.append('signature', signature);
+
+                    const response = await fetch(`${baseUrl}/order?${params.toString()}`, {
+                        method: 'POST',
+                        headers: { 'X-MBX-APIKEY': connection.apiKey }
+                    });
+
+                    const data = await response.json();
+                    return data.orderId || null;
+
+                } catch (error) {
+                    this.log(`⚠️ Erro ao definir Take Profit: ${error.message}`, 'warning');
+                    return null;
                 }
             }
 
@@ -1299,7 +1547,7 @@
                 const encoder = new TextEncoder();
                 const keyData = encoder.encode(secretKey);
                 const messageData = encoder.encode(queryString);
-                
+
                 const key = await crypto.subtle.importKey(
                     'raw',
                     keyData,
@@ -1307,21 +1555,230 @@
                     false,
                     ['sign']
                 );
-                
+
                 const signature = await crypto.subtle.sign('HMAC', key, messageData);
                 const hashArray = Array.from(new Uint8Array(signature));
                 return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
             }
 
+            /* ========================================
+               TIMER DE FECHAMENTO AUTOMÁTICO (5 MIN)
+               ======================================== */
+            startPositionTimer(signalId) {
+                const duration = this.config.positionDuration;
+
+                const timer = setTimeout(() => {
+                    this.log(`⏰ Timer de ${duration / 60000}min expirado para ${signalId}`, 'warning');
+                    this.autoClosePosition(signalId, 'EXPIRED');
+                }, duration);
+
+                this.positionTimers.set(signalId, timer);
+                this.log(`⏱️ Timer de ${duration / 60000}min iniciado`, 'info');
+            }
+
+            stopPositionTimer(signalId) {
+                const timer = this.positionTimers.get(signalId);
+                if (timer) {
+                    clearTimeout(timer);
+                    this.positionTimers.delete(signalId);
+                }
+            }
+
+            /* ========================================
+               FECHAMENTO AUTOMÁTICO DE POSIÇÃO
+               ======================================== */
+            async autoClosePosition(signalId, reason) {
+                const position = this.activePositions.get(signalId);
+                if (!position) return;
+
+                this.log(`🔄 Fechando posição automaticamente: ${reason}`, 'info');
+
+                // Cancelar ordens SL/TP pendentes na Binance (se houver)
+                if (position.stopLossOrderId || position.takeProfitOrderId) {
+                    await this.cancelBinanceOrders(position);
+                }
+
+                // Calcular P&L
+                const pnl = this.calculatePnL(position, reason);
+
+                // Fechar posição
+                this.closePosition(signalId, reason, pnl);
+
+                // Verificar circuit breaker
+                if (pnl < 0) {
+                    this.consecutiveLosses++;
+                    if (this.consecutiveLosses >= this.config.circuitBreakerLosses) {
+                        this.activateCircuitBreaker();
+                    }
+                } else {
+                    this.consecutiveLosses = 0; // Reset em caso de lucro
+                }
+            }
+
+            /* Calcular lucro/perda */
+            calculatePnL(position, result) {
+                const signal = position.signal;
+                const riskAmount = position.riskAmount;
+
+                if (result === 'STOP_LOSS') {
+                    return -riskAmount; // Perda total
+                } else if (result === 'TAKE_PROFIT') {
+                    return riskAmount * (this.config.takeProfitPercent / this.config.stopLossPercent); // Lucro baseado no risco
+                } else {
+                    // EXPIRED ou fechamento manual: P&L neutro ou baseado em preço atual
+                    return 0;
+                }
+            }
+
+            /* Cancelar ordens pendentes na Binance */
+            async cancelBinanceOrders(position) {
+                const activeConn = this.apiManager.getActiveConnection();
+                if (!activeConn || activeConn.provider !== 'BINANCE') return;
+
+                const BASE_URL = activeConn.testnet
+                    ? 'https://testnet.binancefuture.com/fapi/v1'
+                    : 'https://fapi.binance.com/fapi/v1';
+
+                try {
+                    const ordersToCancel = [position.stopLossOrderId, position.takeProfitOrderId].filter(Boolean);
+
+                    for (const orderId of ordersToCancel) {
+                        const params = new URLSearchParams({
+                            symbol: position.signal.symbol,
+                            orderId: orderId.toString(),
+                            timestamp: Date.now().toString()
+                        });
+
+                        const signature = await this.signBinanceRequest(params.toString(), activeConn.secretKey);
+                        params.append('signature', signature);
+
+                        await fetch(`${BASE_URL}/order?${params.toString()}`, {
+                            method: 'DELETE',
+                            headers: { 'X-MBX-APIKEY': activeConn.apiKey }
+                        });
+                    }
+
+                    this.log(`✅ Ordens SL/TP canceladas`, 'info');
+                } catch (error) {
+                    this.log(`⚠️ Erro ao cancelar ordens: ${error.message}`, 'warning');
+                }
+            }
+
+            /* ========================================
+               CIRCUIT BREAKER (PAUSA APÓS PERDAS)
+               ======================================== */
+            activateCircuitBreaker() {
+                this.circuitBreakerActive = true;
+                this.log(`🚨 CIRCUIT BREAKER ATIVADO após ${this.consecutiveLosses} perdas consecutivas!`, 'error');
+                this.log(`⚠️ Sistema pausado. Reative manualmente após análise.`, 'error');
+            }
+
+            deactivateCircuitBreaker() {
+                this.circuitBreakerActive = false;
+                this.consecutiveLosses = 0;
+                this.log(`✅ Circuit Breaker desativado - sistema reativado`, 'success');
+            }
+
+            /* ========================================
+               MÉTODOS MANUAIS
+               ======================================== */
+            async executeManualSignal() {
+                if (!this.pendingSignal) {
+                    return { success: false, message: 'Nenhum sinal pendente' };
+                }
+
+                const { signal, riskAmount } = this.pendingSignal;
+                const result = await this.executeSignal(signal, riskAmount);
+                this.pendingSignal = null;
+
+                return result;
+            }
+
+            ignoreManualSignal() {
+                this.pendingSignal = null;
+                this.log('❌ Sinal ignorado pelo usuário', 'info');
+            }
+
+            getPendingSignal() {
+                return this.pendingSignal;
+            }
+
+            copySignalToClipboard() {
+                if (!this.pendingSignal) return false;
+
+                const data = this.pendingSignal.calculatedData;
+                const text = `
+🤖 SINAL ALPHA-LEARNER
+
+Par: ${data.symbol}
+Direção: ${data.direction}
+Preço: $${data.price}
+Quantidade: ${data.quantity}
+
+Stop Loss: $${data.stopLoss} (-${data.stopLossPercent}%)
+Take Profit: $${data.takeProfit} (+${data.takeProfitPercent}%)
+
+Risco: $${data.riskAmount}
+Lucro Potencial: $${data.potentialProfit}
+Duração: ${data.duration}
+                `.trim();
+
+                navigator.clipboard.writeText(text);
+                this.log('📋 Sinal copiado para clipboard!', 'success');
+                return true;
+            }
+
+            /* Exportar logs para CSV */
+            exportLogsToCSV() {
+                const header = 'Timestamp,Símbolo,Direção,Preço Entrada,Stop Loss,Take Profit,Resultado,P&L,Taxa,Lucro Líquido\n';
+
+                const rows = this.executionHistory.map(exec => {
+                    const pnl = exec.pnl || 0;
+                    const commission = exec.orderResult.commission || 0;
+                    const netProfit = pnl - commission;
+
+                    return [
+                        exec.timestamp,
+                        exec.symbol,
+                        exec.direction,
+                        exec.orderResult.executedPrice,
+                        exec.signal.stopLoss,
+                        exec.signal.takeProfit,
+                        exec.result || 'PENDING',
+                        pnl.toFixed(2),
+                        commission.toFixed(2),
+                        netProfit.toFixed(2)
+                    ].join(',');
+                }).join('\n');
+
+                const csv = header + rows;
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `alpha-learner-logs-${Date.now()}.csv`;
+                link.click();
+
+                this.log('📊 Logs exportados para CSV', 'success');
+            }
+
             closePosition(signalId, result, pnl) {
                 const position = this.activePositions.get(signalId);
-                
+
                 if (position) {
+                    // Parar timer
+                    this.stopPositionTimer(signalId);
+
+                    // Atualizar saldo
                     this.virtualBalance += position.riskAmount + pnl;
-                    
+
+                    // Remover posição
                     this.activePositions.delete(signalId);
-                    this.log(`📊 Posição fechada: ${result} | P&L: R$${pnl.toFixed(2)}`, 
+
+                    // Log
+                    this.log(`📊 Posição fechada: ${result} | P&L: R$${pnl.toFixed(2)}`,
                         pnl >= 0 ? 'success' : 'warning');
+
                     this.saveToStorage();
                 }
             }
@@ -4987,12 +5444,296 @@ ${signal.divergence ? `Divergencia: ${signal.divergence.type}` : ''}
                             />
                         )}
                     </div>
-                    
+
+                    {/* POPUP DE MODO MANUAL */}
+                    <ManualSignalPopup
+                        orderExecutor={orderExecutor}
+                        onExecute={() => setUpdateTrigger(t => t + 1)}
+                        showNotification={showNotification}
+                    />
+
                     {notification && (
                         <div className="notification">
                             {notification}
                         </div>
                     )}
+                </div>
+            );
+        }
+
+        /* ========================================
+           COMPONENTE: POPUP DE MODO MANUAL
+           ======================================== */
+        function ManualSignalPopup({ orderExecutor, onExecute, showNotification }) {
+            const [pendingSignal, setPendingSignal] = useState(null);
+
+            // Verificar sinal pendente a cada 1 segundo
+            useEffect(() => {
+                const interval = setInterval(() => {
+                    if (orderExecutor) {
+                        const signal = orderExecutor.getPendingSignal();
+                        setPendingSignal(signal);
+                    }
+                }, 1000);
+
+                return () => clearInterval(interval);
+            }, [orderExecutor]);
+
+            if (!pendingSignal) return null;
+
+            const data = pendingSignal.calculatedData;
+            const isLong = data.direction === 'LONG';
+
+            const handleExecute = async () => {
+                if (!orderExecutor) return;
+
+                const result = await orderExecutor.executeManualSignal();
+
+                if (result.success) {
+                    showNotification('✅ Ordem executada com sucesso!', 'success');
+                    onExecute();
+                } else {
+                    showNotification(`❌ Erro: ${result.message}`, 'error');
+                }
+            };
+
+            const handleCopy = () => {
+                if (!orderExecutor) return;
+                orderExecutor.copySignalToClipboard();
+                showNotification('📋 Sinal copiado para clipboard!', 'success');
+            };
+
+            const handleIgnore = () => {
+                if (!orderExecutor) return;
+                orderExecutor.ignoreManualSignal();
+                showNotification('❌ Sinal ignorado', 'info');
+            };
+
+            return (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10000,
+                    backdropFilter: 'blur(5px)'
+                }}>
+                    <div style={{
+                        backgroundColor: '#1a1a2e',
+                        borderRadius: '16px',
+                        padding: '30px',
+                        maxWidth: '500px',
+                        width: '90%',
+                        border: '2px solid ' + (isLong ? '#00ff88' : '#ff6b6b'),
+                        boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
+                    }}>
+                        {/* Header */}
+                        <div style={{
+                            textAlign: 'center',
+                            marginBottom: '25px',
+                            borderBottom: '1px solid rgba(255,255,255,0.1)',
+                            paddingBottom: '15px'
+                        }}>
+                            <div style={{ fontSize: '32px', marginBottom: '10px' }}>🔔</div>
+                            <h2 style={{
+                                color: '#00ff88',
+                                margin: '0 0 5px 0',
+                                fontSize: '24px'
+                            }}>NOVO SINAL DETECTADO</h2>
+                            <div style={{
+                                color: '#888',
+                                fontSize: '14px'
+                            }}>Modo Manual Ativo</div>
+                        </div>
+
+                        {/* Dados principais */}
+                        <div style={{ marginBottom: '25px' }}>
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                marginBottom: '15px',
+                                padding: '15px',
+                                backgroundColor: 'rgba(255,255,255,0.05)',
+                                borderRadius: '8px'
+                            }}>
+                                <div>
+                                    <div style={{ color: '#888', fontSize: '12px' }}>Par</div>
+                                    <div style={{ color: '#fff', fontSize: '20px', fontWeight: 'bold' }}>{data.symbol}</div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                    <div style={{ color: '#888', fontSize: '12px' }}>Direção</div>
+                                    <div style={{
+                                        color: isLong ? '#00ff88' : '#ff6b6b',
+                                        fontSize: '24px',
+                                        fontWeight: 'bold'
+                                    }}>
+                                        {isLong ? '🟢 LONG' : '🔴 SHORT'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: '1fr 1fr',
+                                gap: '10px',
+                                marginBottom: '15px'
+                            }}>
+                                <div style={{
+                                    padding: '12px',
+                                    backgroundColor: 'rgba(255,255,255,0.05)',
+                                    borderRadius: '8px'
+                                }}>
+                                    <div style={{ color: '#888', fontSize: '11px', marginBottom: '5px' }}>Preço Atual</div>
+                                    <div style={{ color: '#fff', fontSize: '16px', fontWeight: 'bold' }}>${data.price}</div>
+                                </div>
+                                <div style={{
+                                    padding: '12px',
+                                    backgroundColor: 'rgba(255,255,255,0.05)',
+                                    borderRadius: '8px'
+                                }}>
+                                    <div style={{ color: '#888', fontSize: '11px', marginBottom: '5px' }}>Quantidade</div>
+                                    <div style={{ color: '#fff', fontSize: '16px', fontWeight: 'bold' }}>{data.quantity}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* SL/TP */}
+                        <div style={{
+                            marginBottom: '25px',
+                            padding: '15px',
+                            backgroundColor: 'rgba(255,255,255,0.03)',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(255,255,255,0.1)'
+                        }}>
+                            <div style={{
+                                color: '#00ff88',
+                                fontSize: '14px',
+                                fontWeight: 'bold',
+                                marginBottom: '12px'
+                            }}>📊 RECOMENDAÇÃO</div>
+
+                            <div style={{ marginBottom: '10px' }}>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    marginBottom: '5px'
+                                }}>
+                                    <span style={{ color: '#ff6b6b' }}>🛑 Stop Loss:</span>
+                                    <span style={{ color: '#fff', fontWeight: 'bold' }}>${data.stopLoss} (-{data.stopLossPercent}%)</span>
+                                </div>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between'
+                                }}>
+                                    <span style={{ color: '#00ff88' }}>🎯 Take Profit:</span>
+                                    <span style={{ color: '#fff', fontWeight: 'bold' }}>${data.takeProfit} (+{data.takeProfitPercent}%)</span>
+                                </div>
+                            </div>
+
+                            <div style={{
+                                borderTop: '1px solid rgba(255,255,255,0.1)',
+                                paddingTop: '10px',
+                                marginTop: '10px'
+                            }}>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    fontSize: '13px',
+                                    marginBottom: '5px'
+                                }}>
+                                    <span style={{ color: '#888' }}>Risco:</span>
+                                    <span style={{ color: '#ff6b6b' }}>${data.riskAmount}</span>
+                                </div>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    fontSize: '13px',
+                                    marginBottom: '5px'
+                                }}>
+                                    <span style={{ color: '#888' }}>Lucro Potencial:</span>
+                                    <span style={{ color: '#00ff88' }}>${data.potentialProfit}</span>
+                                </div>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    fontSize: '13px'
+                                }}>
+                                    <span style={{ color: '#888' }}>Duração:</span>
+                                    <span style={{ color: '#fff' }}>{data.duration}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Botões */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr 1fr',
+                            gap: '10px'
+                        }}>
+                            <button
+                                onClick={handleExecute}
+                                style={{
+                                    padding: '14px',
+                                    backgroundColor: '#00ff88',
+                                    color: '#000',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    fontSize: '13px',
+                                    transition: 'all 0.3s ease'
+                                }}
+                                onMouseOver={(e) => e.target.style.backgroundColor = '#00cc6a'}
+                                onMouseOut={(e) => e.target.style.backgroundColor = '#00ff88'}
+                            >
+                                ✅ EXECUTAR
+                            </button>
+
+                            <button
+                                onClick={handleCopy}
+                                style={{
+                                    padding: '14px',
+                                    backgroundColor: 'rgba(255,255,255,0.1)',
+                                    color: '#fff',
+                                    border: '1px solid rgba(255,255,255,0.2)',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    fontSize: '13px',
+                                    transition: 'all 0.3s ease'
+                                }}
+                                onMouseOver={(e) => e.target.style.backgroundColor = 'rgba(255,255,255,0.2)'}
+                                onMouseOut={(e) => e.target.style.backgroundColor = 'rgba(255,255,255,0.1)'}
+                            >
+                                📋 COPIAR
+                            </button>
+
+                            <button
+                                onClick={handleIgnore}
+                                style={{
+                                    padding: '14px',
+                                    backgroundColor: 'rgba(255,107,107,0.2)',
+                                    color: '#ff6b6b',
+                                    border: '1px solid #ff6b6b',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    fontSize: '13px',
+                                    transition: 'all 0.3s ease'
+                                }}
+                                onMouseOver={(e) => e.target.style.backgroundColor = 'rgba(255,107,107,0.3)'}
+                                onMouseOut={(e) => e.target.style.backgroundColor = 'rgba(255,107,107,0.2)'}
+                            >
+                                ❌ IGNORAR
+                            </button>
+                        </div>
+                    </div>
                 </div>
             );
         }
