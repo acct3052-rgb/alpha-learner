@@ -4812,6 +4812,7 @@ useEffect(() => {
             
             orderExecutorRef.current = new OrderExecutionManager(apiManagerRef.current);
             setOrderExecutor(orderExecutorRef.current);
+            window.orderExecutorRef = orderExecutorRef.current; // Tornar acessível globalmente
             console.log('✅ OrderExecutor inicializado');
 
             const telegramNotifier = new TelegramNotifier();
