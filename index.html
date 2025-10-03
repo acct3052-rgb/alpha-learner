@@ -4398,15 +4398,19 @@ useEffect(() => {
                     console.log(`   Entrada: ${new Date(entryTime).toLocaleTimeString('pt-BR')} (em ${Math.floor(timeUntilEntry/1000)}s)`);
                     console.log(`   Expiração: ${new Date(expirationTime || entryTime + 5*60*1000).toLocaleTimeString('pt-BR')} (em ${Math.floor(timeUntilExpiration/1000)}s)`);
 
-                    // Guardar preço de entrada quando o candle começar
-                    let entryPrice = null;
+                    // Para opções binárias: usar SEMPRE o preço do sinal como referência
+                    // O preço de referência é quando o sinal foi gerado, não quando entra
+                    const referencePrice = signal.price;
 
                     const entryTimer = setTimeout(() => {
-                        entryPrice = marketDataRef.current?.getLatestPrice()?.close || signal.price;
-                        console.log(`✅ [BINARY] Entrada executada em ${new Date().toLocaleTimeString('pt-BR')} @ ${entryPrice.toFixed(6)}`);
+                        const currentEntryPrice = marketDataRef.current?.getLatestPrice()?.close || signal.price;
+                        console.log(`✅ [BINARY] Entrada executada em ${new Date().toLocaleTimeString('pt-BR')}`);
+                        console.log(`   📌 Preço de referência (sinal): ${referencePrice.toFixed(6)}`);
+                        console.log(`   💰 Preço atual na entrada: ${currentEntryPrice.toFixed(6)}`);
+                        console.log(`   📊 Diferença já na entrada: ${(currentEntryPrice - referencePrice).toFixed(6)}`);
 
                         // Notificar execução
-                        showNotification(`✅ Entrada executada: ${signal.direction} @ ${entryPrice.toFixed(6)}`);
+                        showNotification(`✅ Entrada: ${signal.direction} @ ${currentEntryPrice.toFixed(6)} (ref: ${referencePrice.toFixed(6)})`);
                     }, timeUntilEntry);
 
                     // Validar APENAS no horário de expiração (não monitora continuamente)
@@ -4420,42 +4424,42 @@ useEffect(() => {
                             return;
                         }
 
-                        // Para opções binárias: compara preço de fechamento com preço de entrada
-                        const actualEntryPrice = entryPrice || signal.price;
+                        // Para opções binárias: compara preço de fechamento com preço de REFERÊNCIA (quando sinal foi gerado)
+                        // NÃO usar preço da entrada, usar preço do sinal!
                         let result = null;
                         let pnl = 0;
 
                         if (signal.direction === 'BUY') {
-                            // CALL: precisa fechar ACIMA do preço de entrada
-                            console.log(`   🔍 [BUY/CALL] Verificando: ${currentPrice.toFixed(6)} > ${actualEntryPrice.toFixed(6)} ?`);
-                            if (currentPrice > actualEntryPrice) {
+                            // CALL: precisa fechar ACIMA do preço de referência
+                            console.log(`   🔍 [BUY/CALL] Verificando: ${currentPrice.toFixed(6)} > ${referencePrice.toFixed(6)} ?`);
+                            if (currentPrice > referencePrice) {
                                 result = 'ACERTO';
                                 pnl = riskAmount * 0.85; // Payout típico 85%
                                 console.log(`   ✅ SIM! Preço fechou ACIMA. ACERTO!`);
                             } else {
                                 result = 'ERRO';
                                 pnl = -riskAmount;
-                                console.log(`   ❌ NÃO! Preço fechou ${currentPrice >= actualEntryPrice ? 'IGUAL' : 'ABAIXO'}. ERRO!`);
+                                console.log(`   ❌ NÃO! Preço fechou ${currentPrice >= referencePrice ? 'IGUAL' : 'ABAIXO'}. ERRO!`);
                             }
                         } else {
-                            // PUT: precisa fechar ABAIXO do preço de entrada
-                            console.log(`   🔍 [SELL/PUT] Verificando: ${currentPrice.toFixed(6)} < ${actualEntryPrice.toFixed(6)} ?`);
-                            if (currentPrice < actualEntryPrice) {
+                            // PUT: precisa fechar ABAIXO do preço de referência
+                            console.log(`   🔍 [SELL/PUT] Verificando: ${currentPrice.toFixed(6)} < ${referencePrice.toFixed(6)} ?`);
+                            if (currentPrice < referencePrice) {
                                 result = 'ACERTO';
                                 pnl = riskAmount * 0.85; // Payout típico 85%
                                 console.log(`   ✅ SIM! Preço fechou ABAIXO. ACERTO!`);
                             } else {
                                 result = 'ERRO';
                                 pnl = -riskAmount;
-                                console.log(`   ❌ NÃO! Preço fechou ${currentPrice <= actualEntryPrice ? 'IGUAL' : 'ACIMA'}. ERRO!`);
+                                console.log(`   ❌ NÃO! Preço fechou ${currentPrice <= referencePrice ? 'IGUAL' : 'ACIMA'}. ERRO!`);
                             }
                         }
 
                         console.log(`🏁 [BINARY] Resultado: ${result}`);
                         console.log(`   Direção: ${signal.direction}`);
-                        console.log(`   Entrada: ${actualEntryPrice.toFixed(6)}`);
-                        console.log(`   Fechamento: ${currentPrice.toFixed(6)}`);
-                        console.log(`   Diferença: ${(currentPrice - actualEntryPrice).toFixed(6)}`);
+                        console.log(`   Preço Referência (sinal): ${referencePrice.toFixed(6)}`);
+                        console.log(`   Preço Fechamento: ${currentPrice.toFixed(6)}`);
+                        console.log(`   Diferença: ${(currentPrice - referencePrice).toFixed(6)}`);
                         console.log(`   P&L: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`);
 
                         verificationTimers.current.delete(signal.id);
