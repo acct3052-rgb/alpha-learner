@@ -1993,6 +1993,20 @@
 
                     if (error) {
                         console.error('❌ Erro ao salvar sinal no Supabase:', error);
+                        console.error('Detalhes do erro:', {
+                            message: error.message,
+                            details: error.details,
+                            hint: error.hint,
+                            code: error.code
+                        });
+                        console.log('Dados que tentamos salvar:', {
+                            id: signal.id,
+                            timestamp: signal.timestamp,
+                            symbol: signal.symbol,
+                            direction: signal.direction,
+                            score: signal.score,
+                            price: signal.price
+                        });
                         throw error;
                     }
 
