@@ -5023,7 +5023,8 @@ useEffect(() => {
                                     erros: recentSignals.filter(s => s.status === 'ERRO').length
                                 });
 
-                                setSignals(recentSignals);
+                                // Carregar apenas sinais PENDENTES no dashboard
+                                setSignals(recentSignals.filter(s => s.status === 'PENDENTE'));
 
                                 // Re-agendar verificação apenas para sinais PENDENTES
                                 const pendingSignals = recentSignals.filter(s => s.status === 'PENDENTE');
