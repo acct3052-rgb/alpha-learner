@@ -5023,11 +5023,29 @@ useEffect(() => {
                                     erros: recentSignals.filter(s => s.status === 'ERRO').length
                                 });
 
-                                // Carregar apenas sinais PENDENTES no dashboard
-                                setSignals(recentSignals.filter(s => s.status === 'PENDENTE'));
+                                // Re-agendar verificação apenas para sinais PENDENTES e NÃO EXPIRADOS
+                                const now = new Date();
+                                const pendingSignals = recentSignals.filter(s => {
+                                    if (s.status !== 'PENDENTE') return false;
 
-                                // Re-agendar verificação apenas para sinais PENDENTES
-                                const pendingSignals = recentSignals.filter(s => s.status === 'PENDENTE');
+                                    // Verificar se já expirou
+                                    const expirationTime = s.expirationTime ? new Date(s.expirationTime) : null;
+                                    if (expirationTime && expirationTime < now) {
+                                        console.log(`⏱️ Sinal ${s.id} já expirou. Marcando como EXPIRADO.`);
+                                        s.status = 'EXPIRADO';
+                                        s.pnl = 0;
+                                        if (window.memoryDB) {
+                                            window.memoryDB.saveSignal(s);
+                                        }
+                                        return false;
+                                    }
+
+                                    return true;
+                                });
+
+                                // Carregar apenas sinais PENDENTES (após filtragem de expirados)
+                                setSignals(pendingSignals);
+
                                 pendingSignals.forEach(signal => {
                                     console.log('🔄 Re-agendando verificação para sinal:', signal.id);
                                     scheduleSignalVerification(signal);
