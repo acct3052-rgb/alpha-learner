@@ -2673,7 +2673,16 @@ Duração: ${data.duration}
                             score: signal.score,
                             price: signal.price
                         });
-                        throw error;
+
+                        // ⚠️ NÃO TRAVAR: Continuar mesmo com erro, sinal fica apenas na memória local
+                        console.warn('⚠️ Sinal NÃO foi salvo no Supabase, mas continuará em memória local');
+                        // Adicionar ao array local mesmo com erro no Supabase
+                        this.signals_history.push({
+                            ...signal,
+                            savedAt: new Date().toISOString(),
+                            supabaseError: true
+                        });
+                        return; // Sair sem throw para não travar o sistema
                     }
 
                     // Adicionar ao array local
@@ -2913,19 +2922,19 @@ Duração: ${data.duration}
                         clearInterval(this.pingInterval);
                     }
 
-                    // Tentar reconectar indefinidamente com backoff
-                    if (this.wsReconnectAttempts < this.maxReconnectAttempts) {
-                        this.wsReconnectAttempts++;
-                        const delay = Math.min(1000 * Math.pow(2, this.wsReconnectAttempts), 30000);
-                        console.log(`🔄 Tentando reconectar em ${delay/1000}s (tentativa ${this.wsReconnectAttempts}/${this.maxReconnectAttempts})...`);
+                    // 🔄 RECONEXÃO INFINITA com backoff exponencial
+                    this.wsReconnectAttempts++;
+                    const delay = Math.min(1000 * Math.pow(2, this.wsReconnectAttempts), 30000); // Máximo 30s
+                    console.log(`🔄 Tentando reconectar em ${delay/1000}s (tentativa ${this.wsReconnectAttempts})...`);
 
-                        setTimeout(() => {
-                            this.connectBinanceWebSocket(symbol, interval, onUpdate);
-                        }, delay);
-                    } else {
-                        console.error('❌ Máximo de tentativas de reconexão atingido. Usando REST API como fallback...');
+                    setTimeout(() => {
+                        this.connectBinanceWebSocket(symbol, interval, onUpdate);
+                    }, delay);
+
+                    // Se falhou muito, usar REST API como backup enquanto tenta reconectar WS
+                    if (this.wsReconnectAttempts > 5 && !this.restApiFailover) {
+                        console.warn('⚠️ Muitas falhas no WebSocket. Ativando REST API como backup...');
                         this.restApiFailover = true;
-                        // Iniciar polling via REST API
                         this.startRestApiPolling(symbol, interval, onUpdate);
                     }
                 };
@@ -4972,7 +4981,73 @@ useEffect(() => {
                     alphaEngineRef.current.tpslOptimizer.learnFromResults();
                 }
             }, 5 * 60 * 1000);
-            
+
+            // 🛡️ WATCHDOG - Verifica saúde do sistema a cada 1 minuto
+            let lastHeartbeat = Date.now();
+            setInterval(() => {
+                const now = Date.now();
+                const timeSinceLastBeat = now - lastHeartbeat;
+
+                // Se passou mais de 2 minutos sem heartbeat, sistema pode estar travado
+                if (timeSinceLastBeat > 120000) {
+                    console.warn('⚠️ WATCHDOG: Sistema pode estar travado! Tentando recuperar...');
+
+                    // Tentar recuperar marketData
+                    if (marketDataRef.current && marketDataRef.current.wsReconnectAttempts < marketDataRef.current.maxReconnectAttempts) {
+                        console.log('🔄 Forçando reconexão do WebSocket...');
+                        marketDataRef.current.wsReconnectAttempts = 0;
+                    }
+                }
+
+                lastHeartbeat = now;
+                console.log('💓 Heartbeat - Sistema ativo');
+            }, 60000); // A cada 1 minuto
+
+            // 🧹 LIMPEZA AUTOMÁTICA - Remove sinais finalizados a cada 10 minutos
+            setInterval(() => {
+                try {
+                    const now = new Date();
+                    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+
+                    // Limpar timers de sinais antigos que não existem mais
+                    const activeSignalIds = new Set(signals.map(s => s.id));
+                    verificationTimers.current.forEach((timerData, signalId) => {
+                        if (!activeSignalIds.has(signalId)) {
+                            console.log(`🧹 Limpando timer órfão: ${signalId}`);
+                            if (timerData.timer) clearTimeout(timerData.timer);
+                            if (timerData.entryTimer) clearTimeout(timerData.entryTimer);
+                            if (timerData.interval) clearInterval(timerData.interval);
+                            verificationTimers.current.delete(signalId);
+                        }
+                    });
+
+                    console.log(`🧹 Limpeza automática executada - ${verificationTimers.current.size} timers ativos`);
+                } catch (error) {
+                    console.error('❌ Erro na limpeza automática:', error);
+                }
+            }, 10 * 60 * 1000); // A cada 10 minutos
+
+            // 🔄 AUTO-RECOVERY - Tenta reconectar APIs se houver falha
+            setInterval(async () => {
+                try {
+                    // Verificar se MarketData está recebendo dados
+                    if (marketDataRef.current && marketDataRef.current.candles && marketDataRef.current.candles.length > 0) {
+                        const latestCandle = marketDataRef.current.candles[marketDataRef.current.candles.length - 1];
+                        const candleAge = Date.now() - latestCandle.timestamp;
+
+                        // Se último candle tem mais de 10 minutos, algo está errado
+                        if (candleAge > 10 * 60 * 1000) {
+                            console.warn('⚠️ Dados de mercado desatualizados! Forçando atualização...');
+                            if (marketDataRef.current.fetchKlinesFromREST) {
+                                await marketDataRef.current.fetchKlinesFromREST(symbol, 'M5', 200);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('❌ Erro no auto-recovery:', error);
+                }
+            }, 5 * 60 * 1000); // A cada 5 minutos
+
         } catch (error) {
             console.error('❌ Erro na inicialização:', error);
             console.log('ℹ️ Alguns componentes podem não estar disponíveis');
@@ -5600,6 +5675,15 @@ useEffect(() => {
                         window.telegramNotifier.notifyResult(signal, result, pnl);
                     }
                     verificationTimers.current.delete(signal.id);
+
+                    // 🧹 LIMPEZA: Remover sinais finalizados após 5 minutos para evitar acúmulo
+                    setTimeout(() => {
+                        setSignals(prev => {
+                            const filtered = prev.filter(s => s.id !== signal.id);
+                            console.log(`🧹 Sinal ${signal.id} removido do estado (${filtered.length} sinais restantes)`);
+                            return filtered;
+                        });
+                    }, 5 * 60 * 1000); // 5 minutos
                 } catch (error) {
                     console.log('Erro na verificação:', error);
                 }
